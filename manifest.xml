@@ -1,0 +1,36 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<OfficeApp xmlns="http://schemas.microsoft.com/office/appforoffice/1.1"
+           xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+           xmlns:bt="http://schemas.microsoft.com/office/officeappbasictypes/1.0"
+           xmlns:ov="http://schemas.microsoft.com/office/taskpaneappversionoverrides"
+           xsi:type="TaskPaneApp">
+  <Id>3f3c7c0b-1a3b-4c52-9b3b-2e2c2f9b2a11</Id>
+  <Version>1.0.0.0</Version>
+  <ProviderName>Test</ProviderName>
+  <DefaultLocale>en-US</DefaultLocale>
+  <DisplayName DefaultValue="Bold Test"/>
+  <Description DefaultValue="Makes all text bold."/>
+  <IconUrl DefaultValue="https://robotbates-boop.github.io/Make-Word-Text-BOLD/icon-32.png"/>
+  <HighResolutionIconUrl DefaultValue="https://robotbates-boop.github.io/Make-Word-Text-BOLD/icon-80.png"/>
+  <SupportUrl DefaultValue="https://robotbates-boop.github.io/Make-Word-Text-BOLD/"/>
+
+  <AppDomains>
+    <AppDomain>https://robotbates-boop.github.io</AppDomain>
+  </AppDomains>
+
+  <Hosts>
+    <Host Name="Word"/>
+  </Hosts>
+
+  <Requirements>
+    <Sets DefaultMinVersion="1.1">
+      <Set Name="WordApi" MinVersion="1.1"/>
+    </Sets>
+  </Requirements>
+
+  <DefaultSettings>
+    <SourceLocation DefaultValue="https://robotbates-boop.github.io/Make-Word-Text-BOLD/taskpane.html"/>
+  </DefaultSettings>
+
+  <Permissions>ReadWriteDocument</Permissions>
+</OfficeApp>
