@@ -2,10 +2,9 @@
 <OfficeApp xmlns="http://schemas.microsoft.com/office/appforoffice/1.1"
            xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
            xmlns:bt="http://schemas.microsoft.com/office/officeappbasictypes/1.0"
-           xmlns:ov="http://schemas.microsoft.com/office/taskpaneappversionoverrides"
            xsi:type="TaskPaneApp">
 
-  <Id>0f6a8b7c-10f6-4fb5-9c4d-2c6c1d8b3f1a</Id>
+  <Id>2d2e1f7d-3d5d-4f2c-9a9d-8f5c6f9c2b10</Id>
   <Version>1.0.0.0</Version>
   <ProviderName>robotbates-boop</ProviderName>
   <DefaultLocale>en-US</DefaultLocale>
@@ -32,66 +31,10 @@
 
   <Permissions>ReadWriteDocument</Permissions>
 
-  <!-- IMPORTANT: This Requirements block is often required by Word desktop validators -->
   <Requirements>
     <Sets DefaultMinVersion="1.1">
       <Set Name="WordApi" MinVersion="1.1"/>
     </Sets>
   </Requirements>
 
-  <VersionOverrides xmlns="http://schemas.microsoft.com/office/taskpaneappversionoverrides"
-                    xsi:type="VersionOverridesV1_0">
-    <Hosts>
-      <Host xsi:type="Document">
-        <DesktopFormFactor>
-
-          <ExtensionPoint xsi:type="PrimaryCommandSurface">
-            <OfficeTab id="TabHome">
-              <Group id="grpWordTools">
-                <Label resid="grpLabel"/>
-                <Control xsi:type="Button" id="btnShowTools">
-                  <Label resid="btnLabel"/>
-                  <Supertip>
-                    <Title resid="btnLabel"/>
-                    <Description resid="btnDesc"/>
-                  </Supertip>
-                  <Icon>
-                    <bt:Image size="16" resid="icon16"/>
-                    <bt:Image size="32" resid="icon32"/>
-                    <bt:Image size="80" resid="icon80"/>
-                  </Icon>
-                  <Action xsi:type="ShowTaskpane">
-                    <TaskpaneId>WordToolsPane</TaskpaneId>
-                    <SourceLocation resid="taskpaneUrl"/>
-                  </Action>
-                </Control>
-              </Group>
-            </OfficeTab>
-          </ExtensionPoint>
-
-        </DesktopFormFactor>
-      </Host>
-    </Hosts>
-
-    <Resources>
-      <bt:Images>
-        <bt:Image id="icon16" DefaultValue="https://robotbates-boop.github.io/Word-Add-In-Outlining/icon-16.png"/>
-        <bt:Image id="icon32" DefaultValue="https://robotbates-boop.github.io/Word-Add-In-Outlining/icon-32.png"/>
-        <bt:Image id="icon80" DefaultValue="https://robotbates-boop.github.io/Word-Add-In-Outlining/icon-80.png"/>
-      </bt:Images>
-
-      <bt:Urls>
-        <bt:Url id="taskpaneUrl" DefaultValue="https://robotbates-boop.github.io/Word-Add-In-Outlining/taskpane.html"/>
-      </bt:Urls>
-
-      <bt:ShortStrings>
-        <bt:String id="grpLabel" DefaultValue="Tools"/>
-        <bt:String id="btnLabel" DefaultValue="Word Tools"/>
-      </bt:ShortStrings>
-
-      <bt:LongStrings>
-        <bt:String id="btnDesc" DefaultValue="Open the Word Tools taskpane."/>
-      </bt:LongStrings>
-    </Resources>
-  </VersionOverrides>
 </OfficeApp>
