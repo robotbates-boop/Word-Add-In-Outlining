@@ -3,11 +3,9 @@
 const CHUNK_SIZE = 200;
 
 (function () {
-  // Ensure the registry the taskpane uses
   window.WordToolkit = window.WordToolkit || {};
   window.WordToolkit.modules = window.WordToolkit.modules || {};
 
-  // Must match data-key exactly:
   window.WordToolkit.modules["dynamicNumberingToText"] = async ({ setStatus }) => {
     const status = (m) => setStatus(`Dynamic numbering → text\n${m}`);
 
@@ -39,30 +37,26 @@ const CHUNK_SIZE = 200;
         }
         listItems.sort((a, b) => b.index - a.index);
 
-        // B) Convert fields (skip if ApiNotFound)
+        // B) Convert fields to plain text (skip if not supported)
         let fieldCount = 0;
         let usedUnlink = false;
-
         try {
           status(`Found numbered paragraphs: ${listItems.length}\nLoading fields…`);
-
-          const fields = body.fields; // can throw ApiNotFound on some hosts
+          const fields = body.fields; // may throw ApiNotFound
           fields.load("items");
           await context.sync();
 
           const canUnlink = Office.context.requirements?.isSetSupported?.("WordApiDesktop", "1.4") === true;
           const fieldArray = fields.items.slice().reverse();
-
           fieldCount = fieldArray.length;
           usedUnlink = canUnlink;
 
           status(`Fields found: ${fieldCount}\nConverting fields…`);
-
           let done = 0;
+
           for (const f of fieldArray) {
             try {
               try { f.updateResult(); } catch {}
-
               if (canUnlink) {
                 f.unlink();
               } else {
@@ -74,7 +68,6 @@ const CHUNK_SIZE = 200;
                 try { f.delete(); } catch {}
               }
             } catch {}
-
             done++;
             if (done % CHUNK_SIZE === 0) {
               status(`Converting fields: ${done}/${fieldCount}`);
@@ -82,20 +75,23 @@ const CHUNK_SIZE = 200;
             }
           }
           await context.sync();
-        } catch (e) {
-          status("Fields step skipped (ApiNotFound / not supported).\nContinuing…");
+        } catch {
+          status("Fields skipped (not supported). Continuing…");
         }
 
-        // C) Apply numbering-as-text and remove list formatting
+        // C) Apply numbering-as-text and (best-effort) remove list formatting
         status(`Converting numbering: 0/${listItems.length}`);
         let done = 0;
+        let removedLists = 0;
 
         for (const it of listItems) {
           const p = paragraphs.items[it.index];
 
+          // Insert the list label as text
           p.insertText(it.listString + "\t", Word.InsertLocation.start);
 
-          try { p.detachFromList(); } catch {}
+          // Best-effort list removal: each call might be ApiNotFound depending on host
+          try { p.detachFromList(); removedLists++; } catch {}
           try { p.getRange().listFormat.removeNumbers(); } catch {}
 
           done++;
@@ -110,19 +106,22 @@ const CHUNK_SIZE = 200;
         const report =
           "REPORT: Dynamic numbering → text\n" +
           `Fields converted: ${fieldCount} (${usedUnlink ? "unlink" : "fallback/skip"})\n` +
-          `Numbered paragraphs converted: ${listItems.length}`;
+          `Numbered paragraphs processed: ${listItems.length}\n` +
+          `detachFromList succeeded: ${removedLists}`;
 
         body.insertParagraph(report, Word.InsertLocation.end);
 
         status(
           "Complete.\n" +
             `Fields converted: ${fieldCount} (${usedUnlink ? "unlink" : "fallback/skip"})\n` +
-            `Numbered paragraphs converted: ${listItems.length}`
+            `Numbered paragraphs processed: ${listItems.length}\n` +
+            `detachFromList succeeded: ${removedLists}`
         );
 
         await context.sync();
       });
     } catch (e) {
+      // If anything still throws ApiNotFound, capture it
       status("ERROR:\n" + String(e?.message || e));
       throw e;
     }
