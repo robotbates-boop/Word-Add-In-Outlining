@@ -7,12 +7,18 @@
   window.WordToolkit.modules["dynamicNumberingToText"] = async ({ setStatus }) => {
     const status = (m) => setStatus(`Dynamic numbering → text\n${m}`);
 
+    let numberedDetected = 0;
+    let numberedApplied = 0;
+    let detachWorked = 0;
+    let removeNumbersWorked = 0;
+
+    const optionalApiNotes = new Set();
+
     try {
       await Word.run(async (context) => {
         const body = context.document.body;
         const selection = context.document.getSelection();
 
-        // Freeze scope: wrap selection in a temp content control
         selection.load("text");
         await context.sync();
 
@@ -21,83 +27,95 @@
           return;
         }
 
+        // Freeze the selection so edits don't collapse it
         const cc = selection.insertContentControl();
         cc.tag = "WordToolkit_DNTT";
         cc.appearance = "Hidden";
-
         const scope = cc.getRange();
 
-        // Load paragraphs with style + list info
+        // Load paragraphs + list info
         const paras = scope.paragraphs;
         paras.load(
           "items," +
-            "items/style," +
             "items/listItemOrNullObject," +
             "items/listItemOrNullObject/isNullObject," +
             "items/listItemOrNullObject/listString"
         );
         await context.sync();
 
-        const total = paras.items.length;
-        const convertible = [];
-        const notConvertible = [];
-
+        // Snapshot list strings now (before edits)
+        const items = [];
         for (let i = 0; i < paras.items.length; i++) {
           const p = paras.items[i];
           const li = p.listItemOrNullObject;
-          const ls = (li && li.isNullObject === false && li.listString) ? String(li.listString) : "";
+          const ls =
+            li && li.isNullObject === false && li.listString ? String(li.listString) : "";
+          if (ls) items.push({ idx: i, ls });
+        }
 
-          if (ls) {
-            convertible.push({ i, ls, style: p.style || "" });
-          } else {
-            notConvertible.push({ i, style: p.style || "" });
+        // Bottom-up
+        items.sort((a, b) => b.idx - a.idx);
+        numberedDetected = items.length;
+
+        status(`Detected numbered paragraphs: ${numberedDetected}\nApplying...`);
+
+        // IMPORTANT CHANGE:
+        // Apply one paragraph at a time, syncing each time, so we don't lose earlier insertions.
+        for (let k = 0; k < items.length; k++) {
+          const it = items[k];
+          const p = paras.items[it.idx];
+
+          try {
+            // Insert marker as text
+            p.insertText(it.ls + "\t", Word.InsertLocation.start);
+            await context.sync();
+            numberedApplied++;
+          } catch (e) {
+            // If insertText fails, skip this paragraph
+            continue;
           }
-        }
 
-        // Report what the API can actually see
-        let report =
-          "DIAGNOSTIC: What Office.js can see\n" +
-          `Paragraphs in selection: ${total}\n` +
-          `Convertible (has listString): ${convertible.length}\n` +
-          `Not convertible (no listString): ${notConvertible.length}\n\n`;
-
-        if (notConvertible.length) {
-          report += "Not-convertible paragraph styles (first 30):\n";
-          for (const x of notConvertible.slice(0, 30)) {
-            report += `#${x.i}  style="${x.style}"\n`;
+          // Optional clean-up APIs (may be missing -> ApiNotFound)
+          try {
+            p.detachFromList();
+            await context.sync();
+            detachWorked++;
+          } catch (e) {
+            if (String(e?.message || e).includes("ApiNotFound")) optionalApiNotes.add("detachFromList");
           }
-          report += "\nIf these are Heading 1/2/3 etc., your numbering is style-driven and Office.js will not expose the number string.\n";
+
+          try {
+            p.getRange().listFormat.removeNumbers();
+            await context.sync();
+            removeNumbersWorked++;
+          } catch (e) {
+            if (String(e?.message || e).includes("ApiNotFound")) optionalApiNotes.add("removeNumbers");
+          }
+
+          status(`Applied: ${numberedApplied}/${numberedDetected}`);
         }
-
-        // Convert only what is convertible (bottom-up)
-        convertible.sort((a, b) => b.i - a.i);
-
-        for (const it of convertible) {
-          const p = paras.items[it.i];
-          p.insertText(it.ls + "\t", Word.InsertLocation.start);
-          try { p.detachFromList(); } catch {}
-          try { p.getRange().listFormat.removeNumbers(); } catch {}
-        }
-
-        await context.sync();
 
         // Remove content control, keep contents
-        try { cc.delete(false); } catch {}
-        await context.sync();
+        try {
+          cc.delete(false);
+          await context.sync();
+        } catch {}
 
-        // Put report at end of document so you can see it
-        body.insertParagraph(report, Word.InsertLocation.end);
-        await context.sync();
+        const notes = optionalApiNotes.size
+          ? `\nOptional APIs unavailable: ${Array.from(optionalApiNotes).join(", ")}`
+          : "";
 
         status(
           "Complete.\n" +
-          `Paragraphs in selection: ${total}\n` +
-          `Converted (listString): ${convertible.length}\n` +
-          `Unconverted (no listString): ${notConvertible.length}\n` +
-          "A diagnostic report was appended to the end of the document."
+            `Detected numbered paragraphs: ${numberedDetected}\n` +
+            `Numbered paragraphs converted: ${numberedApplied}\n` +
+            `detachFromList succeeded: ${detachWorked}\n` +
+            `removeNumbers succeeded: ${removeNumbersWorked}` +
+            notes
         );
       });
     } catch (e) {
+      // Do not mask real errors; but keep message readable
       status("ERROR:\n" + String(e?.message || e));
       throw e;
     }
