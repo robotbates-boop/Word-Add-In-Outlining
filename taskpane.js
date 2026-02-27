@@ -1,70 +1,108 @@
-/* global Office */
+/* global Word, Office */
 
-// Module key -> script path (single source of truth)
-const MODULES = {
-  dynamicNumberingToText: "modules/dynamicNumberingToText.js",
-  manualNumberingToOutlineLevels: "modules/manualNumberingToOutlineLevels.js",
-  applyStyleTemplateToSelected: "modules/applyStyleTemplateToSelected.js",
-  automaticCrossReferencingToSelected: "modules/automaticCrossReferencingToSelected.js",
-  outlineNumberingDecimal: "modules/outlineNumberingDecimal_1_1.1_1.1.1_1.1.1.1_1.1.1.1.1.js",
-  outlineNumberingLegal: "modules/outlineNumberingLegal_1_1.1_a_i_A.js",
-};
+const CHUNK_SIZE = 200;
 
-Office.onReady(() => {
-  const statusEl = document.getElementById("status");
-  const setStatus = (m) => { if (statusEl) statusEl.textContent = m; };
+(function () {
+  // Register into the menu system
+  window.WordToolkit =
+    window.WordToolkit || { modules: {}, register: (k, f) => (window.WordToolkit.modules[k] = f) };
 
-  // Global toolkit registry
-  window.WordToolkit = window.WordToolkit || {
-    modules: {},
-    register: function (key, fn) { this.modules[key] = fn; },
-  };
+  window.WordToolkit.register("dynamicNumberingToText", async ({ setStatus }) => {
+    setStatus("Running...");
 
-  setStatus("Ready.");
+    try {
+      await Word.run(async (context) => {
+        const body = context.document.body;
 
-  document.querySelectorAll("button[data-key]").forEach((btn) => {
-    btn.addEventListener("click", async () => {
-      const key = btn.getAttribute("data-key");
-      const path = MODULES[key];
+        // A) Snapshot list/outline numbers
+        setStatus("Loading paragraphs...");
+        const paragraphs = body.paragraphs;
+        paragraphs.load(
+          "items," +
+            "items/listItemOrNullObject," +
+            "items/listItemOrNullObject/isNullObject," +
+            "items/listItemOrNullObject/listString"
+        );
+        await context.sync();
 
-      if (!key || !path) {
-        setStatus("ERROR: Unknown module key.");
-        return;
-      }
+        const listItems = [];
+        for (let i = 0; i < paragraphs.items.length; i++) {
+          const p = paragraphs.items[i];
+          const li = p.listItemOrNullObject;
+          if (li && li.isNullObject === false) {
+            const ls = li.listString ? String(li.listString) : "";
+            if (ls) listItems.push({ index: i, listString: ls });
+          }
+        }
+        listItems.sort((a, b) => b.index - a.index);
 
-      setStatus(`Loading: ${key}`);
+        // B) Convert fields to plain text
+        setStatus("Loading fields...");
+        const fields = body.fields;
+        fields.load("items");
+        await context.sync();
 
-      try {
-        // Load module script if not already registered
-        if (!window.WordToolkit.modules[key]) {
-          await loadScript(path);
+        const canUnlink = Office.context.requirements?.isSetSupported?.("WordApiDesktop", "1.4") === true;
+
+        setStatus(`Converting fields (${fields.items.length})...`);
+
+        const fieldArray = fields.items.slice().reverse();
+        let done = 0;
+
+        for (const f of fieldArray) {
+          try {
+            try { f.updateResult(); } catch {}
+
+            if (canUnlink) {
+              f.unlink();
+            } else {
+              const r = f.getRange();
+              r.load("text");
+              await context.sync();
+              const t = r.text || "";
+              r.insertText(t, Word.InsertLocation.replace);
+              try { f.delete(); } catch {}
+            }
+          } catch {}
+
+          done++;
+          if (done % CHUNK_SIZE === 0) {
+            setStatus(`Converting fields: ${done}/${fieldArray.length}`);
+            await context.sync();
+          }
+        }
+        await context.sync();
+
+        // C) Apply numbering-as-text and remove list formatting
+        setStatus(`Converting numbering (${listItems.length})...`);
+        done = 0;
+
+        for (const it of listItems) {
+          const p = paragraphs.items[it.index];
+
+          p.insertText(it.listString + "\t", Word.InsertLocation.start);
+
+          try { p.detachFromList(); } catch {}
+          try { p.getRange().listFormat.removeNumbers(); } catch {}
+
+          done++;
+          if (done % CHUNK_SIZE === 0) {
+            setStatus(`Converting numbering: ${done}/${listItems.length}`);
+            await context.sync();
+          }
         }
 
-        const fn = window.WordToolkit.modules[key];
-        if (typeof fn !== "function") {
-          throw new Error(`Module did not register: ${key}`);
-        }
-
-        setStatus(`Running: ${key}`);
-        await fn({ setStatus });
-        setStatus(`Done: ${key}`);
-      } catch (e) {
-        setStatus("ERROR: " + String(e?.message || e));
-      }
-    });
+        await context.sync();
+        setStatus(
+          "Done.\n" +
+            `Fields converted: ${fieldArray.length}\n` +
+            `Numbered paragraphs converted: ${listItems.length}\n` +
+            (canUnlink ? "Field unlink: used" : "Field unlink: fallback used")
+        );
+      });
+    } catch (e) {
+      setStatus("ERROR: " + String(e?.message || e));
+      throw e;
+    }
   });
-});
-
-function loadScript(src) {
-  return new Promise((resolve, reject) => {
-    // Cache-bust so GitHub Pages updates are fetched
-    const url = `${src}?v=${Date.now()}`;
-
-    const s = document.createElement("script");
-    s.src = url;
-    s.async = true;
-    s.onload = () => resolve();
-    s.onerror = () => reject(new Error(`Failed to load script: ${src}`));
-    document.head.appendChild(s);
-  });
-}
+})();
