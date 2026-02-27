@@ -2,11 +2,11 @@
 
 /**
  * dynamicNumberingToText.js
- * VERSION: v1.0.0+2026-02-27
+ * VERSION: v1.0.1
  */
 
-const VERSION = "v1.0.0+2026-02-27";
-const CHUNK_SIZE = 50;
+const VERSION = "v1.0.1";
+const CHUNK_SIZE = 25; // small chunk for stability
 
 (function () {
   window.WordToolkit = window.WordToolkit || {};
@@ -14,7 +14,8 @@ const CHUNK_SIZE = 50;
 
   window.WordToolkit.modules["dynamicNumberingToText"] = async ({ setStatus }) => {
     const runStamp = new Date().toISOString();
-    const status = (m) => setStatus(`Dynamic numbering → text\n${m}\n\n${VERSION}\nRun: ${runStamp}`);
+    const status = (m) =>
+      setStatus(`Dynamic numbering → text\n${m}\n\n${VERSION}\nRun: ${runStamp}`);
 
     let detected = 0;
     let applied = 0;
@@ -26,6 +27,8 @@ const CHUNK_SIZE = 50;
     try {
       await Word.run(async (context) => {
         const selection = context.document.getSelection();
+
+        // Ensure a real selection exists
         selection.load("text");
         await context.sync();
 
@@ -34,17 +37,21 @@ const CHUNK_SIZE = 50;
           return;
         }
 
-        // Freeze selection with a wrapper content control.
-        // IMPORTANT: we do NOT delete this control at the end (to avoid deleting the selection).
+        // 1) Freeze selection for this run
+        status("Freezing selection…");
         const wrapper = selection.insertContentControl();
         wrapper.tag = "WordToolkit_DNTT_WRAPPER";
         wrapper.title = `DNTT ${VERSION} ${runStamp}`;
         wrapper.appearance = "Hidden";
 
-        const scope = wrapper.getRange();
+        // IMPORTANT: capture the wrapper range now so we can re-select after cleanup
+        const wrapperRange = wrapper.getRange();
         await context.sync();
 
-        // Load paragraphs in scope
+        // Use the wrapper range as stable scope
+        const scope = wrapperRange;
+
+        // 2) Load paragraphs in scope
         status("Loading paragraphs…");
         const paras = scope.paragraphs;
         paras.load(
@@ -67,10 +74,10 @@ const CHUNK_SIZE = 50;
         items.sort((a, b) => b.idx - a.idx);
         detected = items.length;
 
-        // Fields in scope -> plain text (best-effort)
+        // 3) Convert fields in scope (best-effort)
         try {
           status(`Detected numbered paragraphs: ${detected}\nLoading fields…`);
-          const fields = scope.fields; // may be ApiNotFound in some hosts
+          const fields = scope.fields; // may be ApiNotFound on some hosts
           fields.load("items");
           await context.sync();
 
@@ -109,13 +116,14 @@ const CHUNK_SIZE = 50;
           status(`Detected numbered paragraphs: ${detected}\nFields skipped (API not available).`);
         }
 
-        // Convert numbering: insert at start of paragraph range
+        // 4) Convert numbering (bottom-up)
         status(`Converting numbering: 0/${detected}`);
         let doneNum = 0;
 
         for (const it of items) {
           const p = paras.items[it.idx];
 
+          // Insert the displayed number string as text at paragraph start
           p.getRange().insertText(it.ls + "\t", Word.InsertLocation.start);
           applied++;
 
@@ -132,15 +140,24 @@ const CHUNK_SIZE = 50;
 
         await context.sync();
 
-        // IMPORTANT: no wrapper.delete(...) here.
-        // Leaving the wrapper avoids the selection being deleted in your host.
+        // 5) Restore selection to what we processed (before removing wrapper)
+        try {
+          wrapperRange.select();
+          await context.sync();
+        } catch {}
+
+        // 6) Remove wrapper but KEEP contents (critical)
+        // This avoids deleting the selected paragraphs AND avoids leaving wrappers behind.
+        try {
+          wrapper.delete(true);
+          await context.sync();
+        } catch {}
 
         status(
           "Complete.\n" +
             `Fields converted: ${fieldsConverted}${fieldsSkipped ? " (fields skipped)" : ""}\n` +
             `Numbered paragraphs detected: ${detected}\n` +
-            `Numbered paragraphs converted: ${applied}\n` +
-            "Note: wrapper content control left in place (hidden) to avoid deleting selection."
+            `Numbered paragraphs converted: ${applied}`
         );
       });
     } catch (e) {
