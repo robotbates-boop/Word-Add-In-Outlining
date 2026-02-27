@@ -1,21 +1,35 @@
 /* global Word, Office */
 
+// Convert outline/list numbering to plain text + convert fields to plain text.
+// Safe list detection via listItemOrNullObject (avoids ItemNotFound).
+
 const CHUNK_SIZE = 200;
 
 (function () {
-  // Register into the menu system
   window.WordToolkit =
     window.WordToolkit || { modules: {}, register: (k, f) => (window.WordToolkit.modules[k] = f) };
 
   window.WordToolkit.register("dynamicNumberingToText", async ({ setStatus }) => {
-    setStatus("Running...");
+    const t0 = Date.now();
+
+    const fmtMs = (ms) => {
+      const s = Math.round(ms / 1000);
+      if (s < 60) return `${s}s`;
+      const m = Math.floor(s / 60);
+      const r = s % 60;
+      return `${m}m ${r}s`;
+    };
+
+    const status = (msg) => setStatus(msg);
+
+    status("Dynamic numbering → text\nStarting…");
 
     try {
       await Word.run(async (context) => {
         const body = context.document.body;
 
         // A) Snapshot list/outline numbers
-        setStatus("Loading paragraphs...");
+        status("Dynamic numbering → text\nLoading paragraphs…");
         const paragraphs = body.paragraphs;
         paragraphs.load(
           "items," +
@@ -36,18 +50,29 @@ const CHUNK_SIZE = 200;
         }
         listItems.sort((a, b) => b.index - a.index);
 
+        status(
+          "Dynamic numbering → text\n" +
+            `Found numbered paragraphs: ${listItems.length}\n` +
+            "Loading fields…"
+        );
+
         // B) Convert fields to plain text
-        setStatus("Loading fields...");
         const fields = body.fields;
         fields.load("items");
         await context.sync();
 
-        const canUnlink = Office.context.requirements?.isSetSupported?.("WordApiDesktop", "1.4") === true;
-
-        setStatus(`Converting fields (${fields.items.length})...`);
+        const canUnlink =
+          Office.context.requirements?.isSetSupported?.("WordApiDesktop", "1.4") === true;
 
         const fieldArray = fields.items.slice().reverse();
-        let done = 0;
+        let fieldsDone = 0;
+
+        status(
+          "Dynamic numbering → text\n" +
+            `Fields found: ${fieldArray.length}\n` +
+            `Field unlink: ${canUnlink ? "used" : "fallback"}\n` +
+            "Converting fields…"
+        );
 
         for (const f of fieldArray) {
           try {
@@ -65,43 +90,62 @@ const CHUNK_SIZE = 200;
             }
           } catch {}
 
-          done++;
-          if (done % CHUNK_SIZE === 0) {
-            setStatus(`Converting fields: ${done}/${fieldArray.length}`);
+          fieldsDone++;
+          if (fieldsDone % CHUNK_SIZE === 0) {
+            status(
+              "Dynamic numbering → text\n" +
+                `Converting fields: ${fieldsDone}/${fieldArray.length}\n` +
+                `Elapsed: ${fmtMs(Date.now() - t0)}`
+            );
             await context.sync();
           }
         }
         await context.sync();
 
         // C) Apply numbering-as-text and remove list formatting
-        setStatus(`Converting numbering (${listItems.length})...`);
-        done = 0;
+        let numberingDone = 0;
+        status(
+          "Dynamic numbering → text\n" +
+            `Fields converted: ${fieldArray.length}\n` +
+            `Converting numbering: 0/${listItems.length}\n` +
+            `Elapsed: ${fmtMs(Date.now() - t0)}`
+        );
 
         for (const it of listItems) {
           const p = paragraphs.items[it.index];
 
+          // Insert list label as text at paragraph start
           p.insertText(it.listString + "\t", Word.InsertLocation.start);
 
+          // Remove list formatting
           try { p.detachFromList(); } catch {}
           try { p.getRange().listFormat.removeNumbers(); } catch {}
 
-          done++;
-          if (done % CHUNK_SIZE === 0) {
-            setStatus(`Converting numbering: ${done}/${listItems.length}`);
+          numberingDone++;
+          if (numberingDone % CHUNK_SIZE === 0) {
+            status(
+              "Dynamic numbering → text\n" +
+                `Fields converted: ${fieldArray.length}\n` +
+                `Converting numbering: ${numberingDone}/${listItems.length}\n` +
+                `Elapsed: ${fmtMs(Date.now() - t0)}`
+            );
             await context.sync();
           }
         }
 
         await context.sync();
-        setStatus(
-          "Done.\n" +
+
+        status(
+          "Dynamic numbering → text\n" +
+            "Complete.\n" +
             `Fields converted: ${fieldArray.length}\n` +
             `Numbered paragraphs converted: ${listItems.length}\n` +
-            (canUnlink ? "Field unlink: used" : "Field unlink: fallback used")
+            `Field unlink: ${canUnlink ? "used" : "fallback"}\n` +
+            `Elapsed: ${fmtMs(Date.now() - t0)}`
         );
       });
     } catch (e) {
-      setStatus("ERROR: " + String(e?.message || e));
+      status("Dynamic numbering → text\nERROR:\n" + String(e?.message || e));
       throw e;
     }
   });
