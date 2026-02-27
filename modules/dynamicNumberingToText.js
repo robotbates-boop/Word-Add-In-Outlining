@@ -3,27 +3,19 @@
 const CHUNK_SIZE = 200;
 
 (function () {
-  window.WordToolkit =
-    window.WordToolkit || { modules: {}, register: (k, f) => (window.WordToolkit.modules[k] = f) };
+  // Ensure toolkit exists
+  window.WordToolkit = window.WordToolkit || {
+    modules: {},
+    register: function (key, fn) { this.modules[key] = fn; },
+  };
 
+  // MUST match taskpane.js key: "dynamicNumberingToText"
   window.WordToolkit.register("dynamicNumberingToText", async ({ setStatus }) => {
-    const t0 = Date.now();
-    const fmtMs = (ms) => {
-      const s = Math.round(ms / 1000);
-      if (s < 60) return `${s}s`;
-      const m = Math.floor(s / 60);
-      return `${m}m ${s % 60}s`;
-    };
-
-    const status = (msg) => setStatus(`Dynamic numbering → text\n${msg}`);
+    const status = (m) => setStatus(`Dynamic numbering → text\n${m}`);
 
     status("Starting…");
 
     try {
-      let fieldsFound = 0;
-      let numberedParasFound = 0;
-      let canUnlink = false;
-
       await Word.run(async (context) => {
         const body = context.document.body;
 
@@ -48,22 +40,19 @@ const CHUNK_SIZE = 200;
           }
         }
         listItems.sort((a, b) => b.index - a.index);
-        numberedParasFound = listItems.length;
 
         // B) Convert fields to plain text
-        status(`Found numbered paragraphs: ${numberedParasFound}\nLoading fields…`);
+        status(`Found numbered paragraphs: ${listItems.length}\nLoading fields…`);
         const fields = body.fields;
         fields.load("items");
         await context.sync();
 
-        canUnlink = Office.context.requirements?.isSetSupported?.("WordApiDesktop", "1.4") === true;
+        const canUnlink = Office.context.requirements?.isSetSupported?.("WordApiDesktop", "1.4") === true;
 
         const fieldArray = fields.items.slice().reverse();
-        fieldsFound = fieldArray.length;
+        status(`Fields found: ${fieldArray.length}\nConverting fields…`);
 
-        status(`Fields found: ${fieldsFound}\nConverting fields…`);
-        let fieldsDone = 0;
-
+        let done = 0;
         for (const f of fieldArray) {
           try {
             try { f.updateResult(); } catch {}
@@ -80,49 +69,43 @@ const CHUNK_SIZE = 200;
             }
           } catch {}
 
-          fieldsDone++;
-          if (fieldsDone % CHUNK_SIZE === 0) {
-            status(`Converting fields: ${fieldsDone}/${fieldsFound}\nElapsed: ${fmtMs(Date.now() - t0)}`);
+          done++;
+          if (done % CHUNK_SIZE === 0) {
+            status(`Converting fields: ${done}/${fieldArray.length}`);
             await context.sync();
           }
         }
         await context.sync();
 
         // C) Apply numbering-as-text and remove list formatting
-        status(`Fields converted: ${fieldsFound}\nConverting numbering…`);
-        let numberingDone = 0;
+        status(`Converting numbering: 0/${listItems.length}`);
+        done = 0;
 
         for (const it of listItems) {
           const p = paragraphs.items[it.index];
+
           p.insertText(it.listString + "\t", Word.InsertLocation.start);
 
           try { p.detachFromList(); } catch {}
           try { p.getRange().listFormat.removeNumbers(); } catch {}
 
-          numberingDone++;
-          if (numberingDone % CHUNK_SIZE === 0) {
-            status(`Converting numbering: ${numberingDone}/${numberedParasFound}\nElapsed: ${fmtMs(Date.now() - t0)}`);
+          done++;
+          if (done % CHUNK_SIZE === 0) {
+            status(`Converting numbering: ${done}/${listItems.length}`);
             await context.sync();
           }
         }
+
         await context.sync();
-
-        const elapsed = fmtMs(Date.now() - t0);
-        const summary =
-          "REPORT: Dynamic numbering → text\n" +
-          `Fields converted: ${fieldsFound}\n` +
-          `Numbered paragraphs converted: ${numberedParasFound}\n` +
-          `Field unlink: ${canUnlink ? "used" : "fallback"}\n` +
-          `Elapsed: ${elapsed}`;
-
-        // Write into the document so it is always visible
-        body.insertParagraph(summary, Word.InsertLocation.end);
-
-        status(`Complete.\nFields: ${fieldsFound}\nNumbered paras: ${numberedParasFound}\nElapsed: ${elapsed}`);
-        await context.sync();
+        status(
+          "Complete.\n" +
+            `Fields converted: ${fieldArray.length}\n` +
+            `Numbered paragraphs converted: ${listItems.length}\n` +
+            (canUnlink ? "Field unlink: used" : "Field unlink: fallback used")
+        );
       });
     } catch (e) {
-      status("ERROR:\n" + String(e?.message || e));
+      setStatus("ERROR:\n" + String(e?.message || e));
       throw e;
     }
   });
