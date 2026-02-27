@@ -2,9 +2,10 @@
 
 /**
  * dynamicNumberingToText.js
- * VERSION: v1.1.0
+ * VERSION: v1.2.0 (wrapper cleanup)
  */
-const VERSION = "v1.1.0";
+const VERSION = "v1.2.0";
+const WRAPPER_TAG = "WordToolkit_DNTT_WRAPPER";
 
 (function () {
   window.WordToolkit = window.WordToolkit || {};
@@ -15,18 +16,52 @@ const VERSION = "v1.1.0";
     const status = (m) =>
       setStatus(`Dynamic numbering → text\n${m}\n\n${VERSION}\nRun: ${runStamp}`);
 
-    let detected = 0;
-    let converted = 0;
-
     status("Starting…");
+
+    let detected = 0;
+    let applied = 0;
 
     try {
       await Word.run(async (context) => {
-        const selection = context.document.getSelection();
+        const doc = context.document;
 
-        // Get the paragraphs that are currently selected.
-        const selParas = selection.paragraphs;
-        selParas.load(
+        // 0) CLEAN UP any old wrappers from previous runs (KEEP CONTENTS)
+        // Old hidden wrappers are the most common cause of “one line per click”.
+        const allCCs = doc.contentControls;
+        allCCs.load("items, items/tag");
+        await context.sync();
+
+        const oldWrappers = allCCs.items.filter((cc) => cc.tag === WRAPPER_TAG);
+        if (oldWrappers.length) {
+          status(`Removing ${oldWrappers.length} old wrapper(s)…`);
+          for (const cc of oldWrappers) {
+            try { cc.delete(true); } catch {}
+          }
+          await context.sync();
+        }
+
+        // 1) Wrap CURRENT selection in a fresh wrapper to freeze scope
+        const selection = doc.getSelection();
+        selection.load("text");
+        await context.sync();
+
+        if (!selection.text || selection.text.trim().length === 0) {
+          status("No selection detected. Select the numbered paragraphs first.");
+          return;
+        }
+
+        status("Freezing selection…");
+        const wrapper = selection.insertContentControl();
+        wrapper.tag = WRAPPER_TAG;
+        wrapper.title = `DNTT ${VERSION} ${runStamp}`;
+        wrapper.appearance = "Hidden";
+
+        const scope = wrapper.getRange();
+
+        // 2) Load paragraphs in wrapper scope
+        status("Loading paragraphs…");
+        const paras = scope.paragraphs;
+        paras.load(
           "items," +
             "items/listItemOrNullObject," +
             "items/listItemOrNullObject/isNullObject," +
@@ -34,51 +69,44 @@ const VERSION = "v1.1.0";
         );
         await context.sync();
 
-        if (selParas.items.length === 0) {
-          status("No paragraphs detected in selection.");
-          return;
-        }
-
-        // Snapshot list strings BEFORE any edits
+        // 3) Snapshot list strings bottom-up
         const items = [];
-        for (let i = 0; i < selParas.items.length; i++) {
-          const p = selParas.items[i];
+        for (let i = 0; i < paras.items.length; i++) {
+          const p = paras.items[i];
           const li = p.listItemOrNullObject;
           const ls =
             li && li.isNullObject === false && li.listString ? String(li.listString) : "";
-          if (ls) items.push({ i, ls });
+          if (ls) items.push({ idx: i, ls });
         }
-
-        // Process bottom-up so earlier paragraph references are less likely to be disturbed
-        items.sort((a, b) => b.i - a.i);
-
+        items.sort((a, b) => b.idx - a.idx);
         detected = items.length;
 
-        status(`Selected paragraphs: ${selParas.items.length}\nNumbered detected: ${detected}\nConverting…`);
+        status(`Paragraphs in scope: ${paras.items.length}\nNumbered detected: ${detected}\nConverting…`);
 
-        // CRITICAL: sync after each paragraph so inserts do not collapse to the last line
-        for (let k = 0; k < items.length; k++) {
-          const { i, ls } = items[k];
-          const p = selParas.items[i];
+        // 4) Apply numbering-as-text
+        // Note: detach/removeNumbers are best-effort and may be ApiNotFound on your host.
+        for (const it of items) {
+          const p = paras.items[it.idx];
 
-          // Insert number text + tab at the start of the paragraph
-          p.getRange().insertText(ls + "\t", Word.InsertLocation.start);
-          await context.sync();
+          // Insert number text + tab at paragraph start
+          p.getRange().insertText(it.ls + "\t", Word.InsertLocation.start);
+          applied++;
 
-          // Try to remove list formatting (best effort; may be ApiNotFound)
           try { p.detachFromList(); } catch {}
           try { p.getRange().listFormat.removeNumbers(); } catch {}
-          await context.sync();
-
-          converted++;
-          status(`Converting… ${converted}/${detected}`);
         }
+        await context.sync();
+
+        // 5) Remove wrapper but KEEP contents (critical)
+        // This avoids leaving wrappers that break the next run.
+        status("Cleaning up wrapper…");
+        try { wrapper.delete(true); } catch {}
+        await context.sync();
 
         status(
           "Complete.\n" +
           `Numbered detected: ${detected}\n` +
-          `Converted: ${converted}\n` +
-          "Note: fields are not converted in this build (numbering-only)."
+          `Converted: ${applied}`
         );
       });
     } catch (e) {
