@@ -2,10 +2,10 @@
 
 /**
  * dynamicNumberingToText.js
- * VERSION: v1.4.0 (tracked paragraph anchors)
+ * VERSION: v1.5.0 (verify removal + report style-enforced)
  */
 
-const VERSION = "v1.4.0";
+const VERSION = "v1.5.0";
 
 (function () {
   window.WordToolkit = window.WordToolkit || {};
@@ -22,21 +22,21 @@ const VERSION = "v1.4.0";
 
     let detected = 0;
     let inserted = 0;
-    let detachTried = 0;
-    let removeNumbersTried = 0;
+
+    let removedOk = 0;
+    let removalFailedLikelyStyle = 0;
 
     try {
       await Word.run(async (context) => {
         const selection = context.document.getSelection();
 
-        // Pull paragraphs from selection
         const paras = selection.paragraphs;
         paras.load(
           "items," +
-            "items/text," +
             "items/listItemOrNullObject," +
             "items/listItemOrNullObject/isNullObject," +
-            "items/listItemOrNullObject/listString"
+            "items/listItemOrNullObject/listString," +
+            "items/style"
         );
         await context.sync();
 
@@ -45,7 +45,7 @@ const VERSION = "v1.4.0";
           return;
         }
 
-        // Snapshot targets and TRACK them before any edits
+        // Snapshot targets and track paragraph objects for stability
         const targets = [];
         for (let i = 0; i < paras.items.length; i++) {
           const p = paras.items[i];
@@ -54,49 +54,71 @@ const VERSION = "v1.4.0";
             li && li.isNullObject === false && li.listString ? String(li.listString) : "";
 
           if (ls) {
-            context.trackedObjects.add(p); // critical: stabilize paragraph anchor
-            targets.push({ p, ls });
+            context.trackedObjects.add(p);
+            targets.push({ p, ls, style: p.style || "" });
           }
         }
         await context.sync();
 
+        targets.reverse(); // bottom-up
         detected = targets.length;
 
-        // Quick diagnostic line so you can see what it thinks it will process
         status(
           `Selection paragraphs: ${paras.items.length}\n` +
           `Numbered detected (listString): ${detected}\n` +
-          `Inserting labels…`
+          `Step 1: inserting manual numbers…`
         );
 
-        // Bottom-up tends to reduce interference; still track objects is the main fix
-        targets.reverse();
-
-        // PASS 1: insert labels (sync per paragraph)
+        // Step 1: Insert manual number text (sync per paragraph)
         for (let i = 0; i < targets.length; i++) {
           const { p, ls } = targets[i];
-
-          // Insert at start of paragraph using Paragraph API (not range)
           p.insertText(ls + "\t", Word.InsertLocation.start);
           await context.sync();
-
           inserted++;
           status(`Inserted: ${inserted}/${detected}`);
         }
 
-        // PASS 2 (optional): attempt to remove list formatting after all insertions
-        // Keeping it separate reduces the chance that list operations disturb anchors.
-        status("Attempting to remove list formatting (best effort)…");
+        // Step 2: Try to remove numbering and VERIFY per paragraph
+        status("Step 2: removing numbering (and verifying)…");
 
         for (let i = 0; i < targets.length; i++) {
           const { p } = targets[i];
 
-          try { p.detachFromList(); detachTried++; } catch {}
-          try { p.getRange().listFormat.removeNumbers(); removeNumbersTried++; } catch {}
-        }
-        await context.sync();
+          // Try removal (best effort)
+          try { p.detachFromList(); } catch {}
+          try { p.getRange().listFormat.removeNumbers(); } catch {}
+          await context.sync();
 
-        // Untrack objects (cleanup)
+          // Verify: if listString still exists, numbering is likely style-enforced
+          try {
+            p.load(
+              "listItemOrNullObject," +
+              "listItemOrNullObject/isNullObject," +
+              "listItemOrNullObject/listString"
+            );
+            await context.sync();
+
+            const li = p.listItemOrNullObject;
+            const still =
+              li && li.isNullObject === false && li.listString ? String(li.listString) : "";
+
+            if (still && still.length > 0) {
+              removalFailedLikelyStyle++;
+            } else {
+              removedOk++;
+            }
+          } catch {
+            // If we cannot verify, assume removal failed
+            removalFailedLikelyStyle++;
+          }
+
+          status(
+            `Verified removal: ${removedOk}/${detected}\n` +
+            `Still numbered (likely style-driven): ${removalFailedLikelyStyle}/${detected}`
+          );
+        }
+
+        // Untrack
         for (const t of targets) {
           try { context.trackedObjects.remove(t.p); } catch {}
         }
@@ -105,9 +127,12 @@ const VERSION = "v1.4.0";
         status(
           "Complete.\n" +
           `Numbered detected: ${detected}\n` +
-          `Labels inserted: ${inserted}\n` +
-          `detachFromList attempted: ${detachTried}\n` +
-          `removeNumbers attempted: ${removeNumbersTried}`
+          `Manual numbers inserted: ${inserted}\n` +
+          `Original numbering removed: ${removedOk}\n` +
+          `Still numbered (likely style-driven headings): ${removalFailedLikelyStyle}\n\n` +
+          (removalFailedLikelyStyle
+            ? "Those remaining numbers are coming from the paragraph style (e.g., Heading outline numbering). Office.js cannot reliably remove style-enforced numbering without changing the style definition or switching to an unnumbered style."
+            : "All numbering removed.")
         );
       });
     } catch (e) {
