@@ -14,13 +14,9 @@ const CHUNK_SIZE = 50;
     let fieldsConverted = 0;
     let fieldsSkipped = false;
 
-    let detachTried = 0;
-    let removeNumbersTried = 0;
-
     try {
       await Word.run(async (context) => {
         const selection = context.document.getSelection();
-
         selection.load("text");
         await context.sync();
 
@@ -64,7 +60,7 @@ const CHUNK_SIZE = 50;
         // Fields in scope -> plain text (best-effort)
         try {
           status(`Detected numbered paragraphs: ${detected}\nLoading fields…`);
-          const fields = scope.fields; // may be ApiNotFound
+          const fields = scope.fields; // may be ApiNotFound in some hosts
           fields.load("items");
           await context.sync();
 
@@ -103,20 +99,20 @@ const CHUNK_SIZE = 50;
           status(`Detected numbered paragraphs: ${detected}\nFields skipped (API not available).`);
         }
 
-        // Convert numbering: insert text at paragraph start
+        // Convert numbering: insert at start of paragraph range (NO RangeLocation overload)
         status(`Converting numbering: 0/${detected}`);
         let doneNum = 0;
 
         for (const it of items) {
           const p = paras.items[it.idx];
 
-          const r = p.getRange(Word.RangeLocation.start);
-          r.insertText(it.ls + "\t", Word.InsertLocation.start);
-
+          // Use paragraph range directly; InsertLocation.start puts text at the beginning of the range.
+          p.getRange().insertText(it.ls + "\t", Word.InsertLocation.start);
           applied++;
 
-          try { p.detachFromList(); detachTried++; } catch {}
-          try { p.getRange().listFormat.removeNumbers(); removeNumbersTried++; } catch {}
+          // Best-effort list removal
+          try { p.detachFromList(); } catch {}
+          try { p.getRange().listFormat.removeNumbers(); } catch {}
 
           doneNum++;
           if (doneNum % CHUNK_SIZE === 0) {
@@ -127,9 +123,9 @@ const CHUNK_SIZE = 50;
 
         await context.sync();
 
-        // CRITICAL FIX: keepContent MUST be true, otherwise it deletes the paragraphs.
+        // Remove wrapper control but KEEP contents
         try {
-          wrapper.delete(true); // keep contents
+          wrapper.delete(true);
           await context.sync();
         } catch {}
 
@@ -137,13 +133,17 @@ const CHUNK_SIZE = 50;
           "Complete.\n" +
             `Fields converted: ${fieldsConverted}${fieldsSkipped ? " (fields skipped)" : ""}\n` +
             `Numbered paragraphs detected: ${detected}\n` +
-            `Numbered paragraphs converted: ${applied}\n` +
-            `detachFromList attempted: ${detachTried}\n` +
-            `removeNumbers attempted: ${removeNumbersTried}`
+            `Numbered paragraphs converted: ${applied}`
         );
       });
     } catch (e) {
-      status("ERROR:\n" + String(e?.message || e));
+      // Show debugInfo if present
+      const dbg = e && e.debugInfo ? JSON.stringify(e.debugInfo, null, 2) : "";
+      status(
+        "ERROR:\n" +
+          String(e?.message || e) +
+          (dbg ? "\n\nDEBUG INFO:\n" + dbg : "")
+      );
       throw e;
     }
   };
