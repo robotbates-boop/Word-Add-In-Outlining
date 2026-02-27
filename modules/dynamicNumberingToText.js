@@ -1,5 +1,7 @@
 /* global Word, Office */
 
+const CHUNK_SIZE = 50; // small chunks; safe and responsive
+
 (function () {
   window.WordToolkit = window.WordToolkit || {};
   window.WordToolkit.modules = window.WordToolkit.modules || {};
@@ -9,14 +11,17 @@
 
     let detected = 0;
     let applied = 0;
-    let detachWorked = 0;
-    let removeNumbersWorked = 0;
+    let fieldsConverted = 0;
+    let fieldsSkipped = false;
 
-    const optionalApiNotes = new Set();
+    let detachTried = 0;
+    let removeNumbersTried = 0;
 
     try {
       await Word.run(async (context) => {
+        const body = context.document.body;
         const selection = context.document.getSelection();
+
         selection.load("text");
         await context.sync();
 
@@ -25,14 +30,16 @@
           return;
         }
 
-        // Freeze selection with a wrapper content control (so scope doesn't collapse)
+        // Freeze selection with a wrapper content control
+        status("Freezing selection…");
         const wrapper = selection.insertContentControl();
         wrapper.tag = "WordToolkit_DNTT_WRAPPER";
         wrapper.appearance = "Hidden";
-
         const scope = wrapper.getRange();
+        await context.sync();
 
-        // Load paragraphs in scope + list strings
+        // Load paragraphs in scope
+        status("Loading paragraphs…");
         const paras = scope.paragraphs;
         paras.load(
           "items," +
@@ -42,7 +49,7 @@
         );
         await context.sync();
 
-        // Snapshot list strings
+        // Snapshot list strings bottom-up
         const items = [];
         for (let i = 0; i < paras.items.length; i++) {
           const p = paras.items[i];
@@ -51,95 +58,90 @@
             li && li.isNullObject === false && li.listString ? String(li.listString) : "";
           if (ls) items.push({ idx: i, ls });
         }
-
-        // Bottom-up
         items.sort((a, b) => b.idx - a.idx);
         detected = items.length;
 
-        status(`Detected numbered paragraphs: ${detected}\nAnchoring…`);
+        // Fields in scope -> plain text (best-effort)
+        try {
+          status(`Detected numbered paragraphs: ${detected}\nLoading fields…`);
+          const fields = scope.fields; // may be ApiNotFound
+          fields.load("items");
+          await context.sync();
 
-        // STEP 1: Create a unique anchor (content control) at the START of each target paragraph.
-        // This prevents all insertions from collapsing onto the same final paragraph.
-        const anchors = [];
+          const canUnlink =
+            Office?.context?.requirements?.isSetSupported?.("WordApiDesktop", "1.4") === true;
+
+          const fieldArray = fields.items.slice().reverse();
+          status(`Fields found: ${fieldArray.length}\nConverting fields…`);
+
+          let done = 0;
+          for (const f of fieldArray) {
+            try {
+              try { f.updateResult(); } catch {}
+
+              if (canUnlink) {
+                f.unlink();
+              } else {
+                const r = f.getRange();
+                r.load("text");
+                await context.sync();
+                r.insertText(r.text || "", Word.InsertLocation.replace);
+                try { f.delete(); } catch {}
+              }
+              fieldsConverted++;
+            } catch {}
+
+            done++;
+            if (done % CHUNK_SIZE === 0) {
+              status(`Converting fields: ${done}/${fieldArray.length}`);
+              await context.sync();
+            }
+          }
+          await context.sync();
+        } catch {
+          fieldsSkipped = true;
+          status(`Detected numbered paragraphs: ${detected}\nFields skipped (API not available).`);
+        }
+
+        // Convert numbering: INSERT TEXT via a COLLAPSED RANGE at paragraph start (no anchor CC)
+        status(`Converting numbering: 0/${detected}`);
+
+        let doneNum = 0;
         for (const it of items) {
           const p = paras.items[it.idx];
 
-          // Paragraph start range
-          let startRange;
-          try {
-            startRange = p.getRange(Word.RangeLocation.start);
-          } catch {
-            // Fallback if RangeLocation overload isn't available
-            startRange = p.getRange();
-          }
+          // Create a collapsed range at the paragraph start and insert text there.
+          const r = p.getRange(Word.RangeLocation.start);
+          r.insertText(it.ls + "\t", Word.InsertLocation.start);
 
-          const cc = startRange.insertContentControl();
-          cc.tag = "WordToolkit_DNTT_ANCHOR";
-          cc.title = it.ls; // store the listString on the control for later
-          cc.appearance = "Hidden";
-          anchors.push({ cc, ls: it.ls, idx: it.idx });
+          applied++;
+
+          // Best-effort list removal (optional APIs)
+          try { p.detachFromList(); detachTried++; } catch {}
+          try { p.getRange().listFormat.removeNumbers(); removeNumbersTried++; } catch {}
+
+          doneNum++;
+          if (doneNum % CHUNK_SIZE === 0) {
+            status(`Converting numbering: ${doneNum}/${detected}`);
+            await context.sync();
+          }
         }
+
         await context.sync();
 
-        status(`Anchors created: ${anchors.length}\nApplying…`);
-
-        // STEP 2: Write into each anchor and clean list formatting.
-        for (let k = 0; k < anchors.length; k++) {
-          const a = anchors[k];
-          const p = paras.items[a.idx];
-
-          try {
-            // Insert number text at the anchor (guaranteed per-paragraph location)
-            a.cc.insertText(a.ls + "\t", Word.InsertLocation.start);
-            await context.sync();
-            applied++;
-          } catch {
-            // If insertion fails, continue
-          }
-
-          // Best-effort list removal (may be ApiNotFound)
-          try {
-            p.detachFromList();
-            await context.sync();
-            detachWorked++;
-          } catch (e) {
-            if (String(e?.message || e).includes("ApiNotFound")) optionalApiNotes.add("detachFromList");
-          }
-
-          try {
-            p.getRange().listFormat.removeNumbers();
-            await context.sync();
-            removeNumbersWorked++;
-          } catch (e) {
-            if (String(e?.message || e).includes("ApiNotFound")) optionalApiNotes.add("removeNumbers");
-          }
-
-          // Remove the anchor control but keep its contents
-          try {
-            a.cc.delete(false);
-            await context.sync();
-          } catch {}
-
-          status(`Applied: ${applied}/${detected}`);
-        }
-
-        // Remove wrapper control but keep contents
+        // Remove wrapper control but keep contents (should not delete paragraphs)
         try {
           wrapper.delete(false);
           await context.sync();
         } catch {}
 
-        const notes = optionalApiNotes.size
-          ? `\nOptional APIs unavailable: ${Array.from(optionalApiNotes).join(", ")}`
-          : "";
-
         status(
           "Complete.\n" +
-            `Detected numbered paragraphs: ${detected}\n` +
+            `Fields converted: ${fieldsConverted}${fieldsSkipped ? " (fields skipped)" : ""}\n` +
+            `Numbered paragraphs detected: ${detected}\n` +
             `Numbered paragraphs converted: ${applied}\n` +
-            `detachFromList succeeded: ${detachWorked}\n` +
-            `removeNumbers succeeded: ${removeNumbersWorked}` +
-            notes
+            `detachFromList attempted: ${detachTried}\n` +
+            `removeNumbers attempted: ${removeNumbersTried}`
         );
       });
     } catch (e) {
