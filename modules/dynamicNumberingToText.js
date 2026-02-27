@@ -9,59 +9,121 @@ const CHUNK_SIZE = 200;
   window.WordToolkit.modules["dynamicNumberingToText"] = async ({ setStatus }) => {
     const status = (m) => setStatus(`Dynamic numbering → text\n${m}`);
 
-    status("Starting...");
-
     let fieldsConverted = 0;
     let numberedConverted = 0;
     let fieldsSkipped = false;
-
     let detachSucceeded = 0;
     let removeNumbersSucceeded = 0;
 
     try {
       await Word.run(async (context) => {
         const body = context.document.body;
+        const selection = context.document.getSelection();
 
-        // 1) Decide target range: selection if non-empty, else whole body
-        const sel = context.document.getSelection();
-        sel.load("text");
+        // Determine if we have a non-empty selection
+        selection.load("text");
         await context.sync();
 
-        const targetRange =
-          (sel.text && sel.text.trim().length > 0) ? sel : body.getRange();
+        const hasSelection = !!(selection.text && selection.text.trim().length > 0);
+        const scopeRange = hasSelection ? selection : body.getRange();
 
-        // 2) Snapshot paragraphs in the target range (safe list detection)
-        status("Loading paragraphs in selection...");
-        const paragraphs = targetRange.paragraphs;
-        paragraphs.load(
+        status(hasSelection ? "Using selection scope." : "No selection text detected; using whole document scope.");
+
+        // ------------------------------------------------------------
+        // 1) Collect paragraphs in scope by OVERLAP test (robust)
+        // ------------------------------------------------------------
+        const allParas = body.paragraphs;
+        allParas.load(
           "items," +
             "items/listItemOrNullObject," +
             "items/listItemOrNullObject/isNullObject," +
             "items/listItemOrNullObject/listString"
         );
+
+        // For overlap testing we need each paragraph range + compare result
+        const paraCompareResults = [];
         await context.sync();
 
-        // 3) Convert fields within the same target range (best-effort)
-        try {
-          status(`Paragraphs in scope: ${paragraphs.items.length}\nLoading fields in scope...`);
+        for (let i = 0; i < allParas.items.length; i++) {
+          const pr = allParas.items[i].getRange();
+          // compareLocationWith returns a ClientResult<string>
+          const cmp = pr.compareLocationWith(scopeRange);
+          paraCompareResults.push({ index: i, cmp });
+        }
+        await context.sync();
 
-          const fields = targetRange.fields; // may throw ApiNotFound in some hosts
-          fields.load("items");
+        // Keep paragraphs that are inside/overlapping the selection (or whole doc)
+        const scopedParaIndexes = [];
+        for (const r of paraCompareResults) {
+          const v = String(r.cmp.value || "");
+          // Accept any non-"Before"/non-"After" relationship (covers Overlap/Inside/Contains/etc.)
+          if (v && v !== "Before" && v !== "After") scopedParaIndexes.push(r.index);
+        }
+
+        status(
+          `Paragraphs total: ${allParas.items.length}\n` +
+          `Paragraphs in scope: ${scopedParaIndexes.length}`
+        );
+
+        // Snapshot list markers for scoped paragraphs
+        const scopedListParas = [];
+        for (const idx of scopedParaIndexes) {
+          const p = allParas.items[idx];
+          const li = p.listItemOrNullObject;
+          if (li && li.isNullObject === false) {
+            const ls = li.listString ? String(li.listString) : "";
+            if (ls) scopedListParas.push({ index: idx, listString: ls });
+          }
+        }
+
+        // Bottom-up (by index in body paragraph collection)
+        scopedListParas.sort((a, b) => b.index - a.index);
+
+        status(
+          `List/outline paragraphs in scope: ${scopedListParas.length}\n` +
+          `Preparing to convert fields...`
+        );
+
+        // ------------------------------------------------------------
+        // 2) Convert fields in scope (robust overlap filtering)
+        // ------------------------------------------------------------
+        try {
+          const allFields = body.fields; // may be ApiNotFound in some hosts
+          allFields.load("items");
           await context.sync();
 
+          // Determine if unlink is available (desktop)
           const canUnlink =
             Office?.context?.requirements?.isSetSupported?.("WordApiDesktop", "1.4") === true;
 
-          const fieldArray = fields.items.slice().reverse();
-          status(`Fields found: ${fieldArray.length}\nConverting fields...`);
+          // Build overlap test for each field
+          const fieldCompareResults = [];
+          for (let i = 0; i < allFields.items.length; i++) {
+            const fr = allFields.items[i].getRange();
+            const cmp = fr.compareLocationWith(scopeRange);
+            fieldCompareResults.push({ index: i, cmp });
+          }
+          await context.sync();
+
+          const scopedFieldIndexes = [];
+          for (const r of fieldCompareResults) {
+            const v = String(r.cmp.value || "");
+            if (v && v !== "Before" && v !== "After") scopedFieldIndexes.push(r.index);
+          }
+
+          // Process bottom-up (reverse order)
+          scopedFieldIndexes.sort((a, b) => b - a);
+
+          status(`Fields total: ${allFields.items.length}\nFields in scope: ${scopedFieldIndexes.length}\nConverting fields...`);
 
           let done = 0;
-          for (const f of fieldArray) {
+          for (const idx of scopedFieldIndexes) {
+            const f = allFields.items[idx];
             try {
               try { f.updateResult(); } catch {}
 
               if (canUnlink) {
-                f.unlink(); // desktop-only
+                f.unlink();
               } else {
                 const r = f.getRange();
                 r.load("text");
@@ -70,13 +132,12 @@ const CHUNK_SIZE = 200;
                 r.insertText(t, Word.InsertLocation.replace);
                 try { f.delete(); } catch {}
               }
-
               fieldsConverted++;
             } catch {}
 
             done++;
             if (done % CHUNK_SIZE === 0) {
-              status(`Converting fields: ${done}/${fieldArray.length}`);
+              status(`Converting fields: ${done}/${scopedFieldIndexes.length}`);
               await context.sync();
             }
           }
@@ -86,30 +147,26 @@ const CHUNK_SIZE = 200;
           status("Fields step skipped (API not available).\nContinuing...");
         }
 
-        // 4) Convert numbering bottom-up across ALL paragraphs in the target range
-        status("Converting list/outline numbering (bottom-up)...");
-        let done = 0;
+        // ------------------------------------------------------------
+        // 3) Convert numbering in scope bottom-up
+        // ------------------------------------------------------------
+        status(`Converting numbering: 0/${scopedListParas.length}`);
 
-        for (let i = paragraphs.items.length - 1; i >= 0; i--) {
-          const p = paragraphs.items[i];
-          const li = p.listItemOrNullObject;
+        let doneNum = 0;
+        for (const it of scopedListParas) {
+          const p = allParas.items[it.index];
 
-          if (li && li.isNullObject === false) {
-            const ls = li.listString ? String(li.listString) : "";
-            if (ls) {
-              // Insert the displayed label as plain text
-              p.insertText(ls + "\t", Word.InsertLocation.start);
-              numberedConverted++;
+          // Insert list marker as text
+          p.insertText(it.listString + "\t", Word.InsertLocation.start);
+          numberedConverted++;
 
-              // Remove list formatting (best-effort)
-              try { p.detachFromList(); detachSucceeded++; } catch {}
-              try { p.getRange().listFormat.removeNumbers(); removeNumbersSucceeded++; } catch {}
-            }
-          }
+          // Try to remove list formatting (best-effort)
+          try { p.detachFromList(); detachSucceeded++; } catch {}
+          try { p.getRange().listFormat.removeNumbers(); removeNumbersSucceeded++; } catch {}
 
-          done++;
-          if (done % CHUNK_SIZE === 0) {
-            status(`Processed paragraphs: ${done}/${paragraphs.items.length}`);
+          doneNum++;
+          if (doneNum % CHUNK_SIZE === 0) {
+            status(`Converting numbering: ${doneNum}/${scopedListParas.length}`);
             await context.sync();
           }
         }
