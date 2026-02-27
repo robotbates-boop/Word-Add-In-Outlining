@@ -8,10 +8,11 @@
       h3 { margin: 0 0 10px 0; }
       .btn { display: block; width: 100%; text-align: left; padding: 10px 12px; margin: 8px 0; }
       #status { white-space: pre-wrap; border: 1px solid #ddd; padding: 10px; margin-top: 10px; min-height: 70px; }
-      .row { display:flex; gap:8px; }
-      .row button { flex:1; }
+      .row { display: flex; gap: 8px; }
+      .row .btn { flex: 1; }
     </style>
   </head>
+
   <body>
     <h3>Modules</h3>
 
@@ -29,7 +30,10 @@
 
     <div id="status">Ready.</div>
 
+    <!-- Office.js first -->
     <script src="https://appsforoffice.microsoft.com/lib/1/hosted/office.js"></script>
+
+    <!-- Bootstrap (stable). It will always load latest taskpane_main.js -->
     <script src="taskpane.js"></script>
   </body>
 </html>
