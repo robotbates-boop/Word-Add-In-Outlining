@@ -1,15 +1,23 @@
 (function () {
-  function load(src) {
-    var s = document.createElement("script");
-    s.src = src + "?v=" + Date.now();
-    s.async = true;
-    s.onerror = function () {
-      var el = document.getElementById("status");
-      if (el) el.textContent = "ERROR: failed to load " + src;
-    };
-    document.head.appendChild(s);
+  function setStatus(msg) {
+    var el = document.getElementById("status");
+    if (el) el.textContent = msg;
   }
 
-  // Always load the real logic fresh
-  load("taskpane_main.js");
+  function load(src) {
+    return new Promise(function (resolve, reject) {
+      var s = document.createElement("script");
+      s.src = src + "?v=" + Date.now(); // always fresh
+      s.async = true;
+      s.onload = function () { resolve(); };
+      s.onerror = function () { reject(new Error("Failed to load: " + src)); };
+      document.head.appendChild(s);
+    });
+  }
+
+  setStatus("Bootstrap loaded. Loading main…");
+
+  load("taskpane_main.js")
+    .then(function () {})
+    .catch(function (e) { setStatus("ERROR: " + (e && e.message ? e.message : String(e))); });
 })();
