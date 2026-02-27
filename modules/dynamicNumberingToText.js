@@ -1,6 +1,6 @@
 /* global Word, Office */
 
-const CHUNK_SIZE = 50; // small chunks; safe and responsive
+const CHUNK_SIZE = 50;
 
 (function () {
   window.WordToolkit = window.WordToolkit || {};
@@ -19,7 +19,6 @@ const CHUNK_SIZE = 50; // small chunks; safe and responsive
 
     try {
       await Word.run(async (context) => {
-        const body = context.document.body;
         const selection = context.document.getSelection();
 
         selection.load("text");
@@ -35,6 +34,7 @@ const CHUNK_SIZE = 50; // small chunks; safe and responsive
         const wrapper = selection.insertContentControl();
         wrapper.tag = "WordToolkit_DNTT_WRAPPER";
         wrapper.appearance = "Hidden";
+
         const scope = wrapper.getRange();
         await context.sync();
 
@@ -103,20 +103,18 @@ const CHUNK_SIZE = 50; // small chunks; safe and responsive
           status(`Detected numbered paragraphs: ${detected}\nFields skipped (API not available).`);
         }
 
-        // Convert numbering: INSERT TEXT via a COLLAPSED RANGE at paragraph start (no anchor CC)
+        // Convert numbering: insert text at paragraph start
         status(`Converting numbering: 0/${detected}`);
-
         let doneNum = 0;
+
         for (const it of items) {
           const p = paras.items[it.idx];
 
-          // Create a collapsed range at the paragraph start and insert text there.
           const r = p.getRange(Word.RangeLocation.start);
           r.insertText(it.ls + "\t", Word.InsertLocation.start);
 
           applied++;
 
-          // Best-effort list removal (optional APIs)
           try { p.detachFromList(); detachTried++; } catch {}
           try { p.getRange().listFormat.removeNumbers(); removeNumbersTried++; } catch {}
 
@@ -129,9 +127,9 @@ const CHUNK_SIZE = 50; // small chunks; safe and responsive
 
         await context.sync();
 
-        // Remove wrapper control but keep contents (should not delete paragraphs)
+        // CRITICAL FIX: keepContent MUST be true, otherwise it deletes the paragraphs.
         try {
-          wrapper.delete(false);
+          wrapper.delete(true); // keep contents
           await context.sync();
         } catch {}
 
