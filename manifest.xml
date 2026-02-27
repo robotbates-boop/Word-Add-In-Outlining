@@ -5,16 +5,17 @@
            xmlns:ov="http://schemas.microsoft.com/office/taskpaneappversionoverrides"
            xsi:type="TaskPaneApp">
 
-  <Id>8c7d0f7b-6a53-4a0d-9b8f-3a3c0b4c9f21</Id>
+  <Id>0f6a8b7c-10f6-4fb5-9c4d-2c6c1d8b3f1a</Id>
   <Version>1.0.0.0</Version>
   <ProviderName>robotbates-boop</ProviderName>
-  <DefaultLocale>en-GB</DefaultLocale>
+  <DefaultLocale>en-US</DefaultLocale>
 
   <DisplayName DefaultValue="Word Tools"/>
   <Description DefaultValue="Word utilities (module menu)."/>
 
   <IconUrl DefaultValue="https://robotbates-boop.github.io/Word-Add-In-Outlining/icon-32.png"/>
   <HighResolutionIconUrl DefaultValue="https://robotbates-boop.github.io/Word-Add-In-Outlining/icon-80.png"/>
+
   <SupportUrl DefaultValue="https://robotbates-boop.github.io/Word-Add-In-Outlining/"/>
 
   <AppDomains>
@@ -31,10 +32,19 @@
 
   <Permissions>ReadWriteDocument</Permissions>
 
-  <VersionOverrides xmlns="http://schemas.microsoft.com/office/taskpaneappversionoverrides" xsi:type="VersionOverridesV1_0">
+  <!-- IMPORTANT: This Requirements block is often required by Word desktop validators -->
+  <Requirements>
+    <Sets DefaultMinVersion="1.1">
+      <Set Name="WordApi" MinVersion="1.1"/>
+    </Sets>
+  </Requirements>
+
+  <VersionOverrides xmlns="http://schemas.microsoft.com/office/taskpaneappversionoverrides"
+                    xsi:type="VersionOverridesV1_0">
     <Hosts>
       <Host xsi:type="Document">
         <DesktopFormFactor>
+
           <ExtensionPoint xsi:type="PrimaryCommandSurface">
             <OfficeTab id="TabHome">
               <Group id="grpWordTools">
@@ -58,6 +68,7 @@
               </Group>
             </OfficeTab>
           </ExtensionPoint>
+
         </DesktopFormFactor>
       </Host>
     </Hosts>
@@ -79,7 +90,7 @@
       </bt:ShortStrings>
 
       <bt:LongStrings>
-        <bt:String id="btnDesc" DefaultValue="Open the Word Tools module menu."/>
+        <bt:String id="btnDesc" DefaultValue="Open the Word Tools taskpane."/>
       </bt:LongStrings>
     </Resources>
   </VersionOverrides>
