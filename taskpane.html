@@ -25,7 +25,10 @@
     <div id="status">Ready.</div>
     <div class="small">Tip: select text in Word first, then click a module.</div>
 
-    <!-- Cache-bust taskpane.js aggressively; bump v= when you change taskpane.js -->
-    <script src="taskpane.js?v=3"></script>
+    <!-- REQUIRED: Office.js must load before taskpane.js -->
+    <script src="https://appsforoffice.microsoft.com/lib/1/hosted/office.js"></script>
+
+    <!-- Cache-bust taskpane.js; bump v= when you change taskpane.js -->
+    <script src="taskpane.js?v=5"></script>
   </body>
 </html>
