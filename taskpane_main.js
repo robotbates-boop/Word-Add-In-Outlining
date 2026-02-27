@@ -1,6 +1,6 @@
 /* global Office */
 
-const TASKPANE_MAIN_VERSION = "taskpane_main v1";
+const TASKPANE_MAIN_VERSION = "taskpane_main v2";
 
 const MODULES = {
   dynamicNumberingToText: "modules/dynamicNumberingToText.js",
@@ -24,7 +24,6 @@ window.addEventListener("unhandledrejection", (ev) =>
 );
 
 function ensureRegistry() {
-  // Use ONE registry name: WordToolkit
   window.WordToolkit = window.WordToolkit || {};
   window.WordToolkit.modules = window.WordToolkit.modules || {};
 }
@@ -41,7 +40,6 @@ function loadScript(src) {
 }
 
 Office.onReady(() => {
-  // Prevent double-binding (old cached controllers)
   if (window.__WORDTOOLS_BOUND__) {
     setStatus(`Ready (${TASKPANE_MAIN_VERSION}) [already bound]`);
     return;
@@ -63,19 +61,21 @@ Office.onReady(() => {
 
       const key = btn.getAttribute("data-key");
       const path = MODULES[key];
-      setStatus(`CLICKED (${TASKPANE_MAIN_VERSION}): ${key}\nPath: ${path || "(missing)"}`);
 
+      setStatus(`CLICKED (${TASKPANE_MAIN_VERSION}): ${key}\nPath: ${path || "(missing)"}`);
       if (!key || !path) return;
 
       try {
-        // Force reload this module every click
-        delete window.WordToolkit.modules[key];
+        // DO NOT delete modules[key] here (this was creating the “none registered” situation)
         await loadScript(path);
 
+        const keysAfterLoad = Object.keys(window.WordToolkit.modules);
         const fn = window.WordToolkit.modules[key];
+
         if (typeof fn !== "function") {
-          const keys = Object.keys(window.WordToolkit.modules);
-          throw new Error(`Module did not register "${key}". Registered keys: ${keys.join(", ") || "(none)"}`);
+          throw new Error(
+            `Module did not register "${key}".\nRegistered keys: ${keysAfterLoad.join(", ") || "(none)"}`
+          );
         }
 
         setStatus(`RUNNING (${TASKPANE_MAIN_VERSION}): ${key}`);
