@@ -7,8 +7,8 @@
   window.WordToolkit.modules["dynamicNumberingToText"] = async ({ setStatus }) => {
     const status = (m) => setStatus(`Dynamic numbering → text\n${m}`);
 
-    let numberedDetected = 0;
-    let numberedApplied = 0;
+    let detected = 0;
+    let applied = 0;
     let detachWorked = 0;
     let removeNumbersWorked = 0;
 
@@ -16,9 +16,7 @@
 
     try {
       await Word.run(async (context) => {
-        const body = context.document.body;
         const selection = context.document.getSelection();
-
         selection.load("text");
         await context.sync();
 
@@ -27,13 +25,14 @@
           return;
         }
 
-        // Freeze the selection so edits don't collapse it
-        const cc = selection.insertContentControl();
-        cc.tag = "WordToolkit_DNTT";
-        cc.appearance = "Hidden";
-        const scope = cc.getRange();
+        // Freeze selection with a wrapper content control (so scope doesn't collapse)
+        const wrapper = selection.insertContentControl();
+        wrapper.tag = "WordToolkit_DNTT_WRAPPER";
+        wrapper.appearance = "Hidden";
 
-        // Load paragraphs + list info
+        const scope = wrapper.getRange();
+
+        // Load paragraphs in scope + list strings
         const paras = scope.paragraphs;
         paras.load(
           "items," +
@@ -43,7 +42,7 @@
         );
         await context.sync();
 
-        // Snapshot list strings now (before edits)
+        // Snapshot list strings
         const items = [];
         for (let i = 0; i < paras.items.length; i++) {
           const p = paras.items[i];
@@ -55,27 +54,50 @@
 
         // Bottom-up
         items.sort((a, b) => b.idx - a.idx);
-        numberedDetected = items.length;
+        detected = items.length;
 
-        status(`Detected numbered paragraphs: ${numberedDetected}\nApplying...`);
+        status(`Detected numbered paragraphs: ${detected}\nAnchoring…`);
 
-        // IMPORTANT CHANGE:
-        // Apply one paragraph at a time, syncing each time, so we don't lose earlier insertions.
-        for (let k = 0; k < items.length; k++) {
-          const it = items[k];
+        // STEP 1: Create a unique anchor (content control) at the START of each target paragraph.
+        // This prevents all insertions from collapsing onto the same final paragraph.
+        const anchors = [];
+        for (const it of items) {
           const p = paras.items[it.idx];
 
+          // Paragraph start range
+          let startRange;
           try {
-            // Insert marker as text
-            p.insertText(it.ls + "\t", Word.InsertLocation.start);
-            await context.sync();
-            numberedApplied++;
-          } catch (e) {
-            // If insertText fails, skip this paragraph
-            continue;
+            startRange = p.getRange(Word.RangeLocation.start);
+          } catch {
+            // Fallback if RangeLocation overload isn't available
+            startRange = p.getRange();
           }
 
-          // Optional clean-up APIs (may be missing -> ApiNotFound)
+          const cc = startRange.insertContentControl();
+          cc.tag = "WordToolkit_DNTT_ANCHOR";
+          cc.title = it.ls; // store the listString on the control for later
+          cc.appearance = "Hidden";
+          anchors.push({ cc, ls: it.ls, idx: it.idx });
+        }
+        await context.sync();
+
+        status(`Anchors created: ${anchors.length}\nApplying…`);
+
+        // STEP 2: Write into each anchor and clean list formatting.
+        for (let k = 0; k < anchors.length; k++) {
+          const a = anchors[k];
+          const p = paras.items[a.idx];
+
+          try {
+            // Insert number text at the anchor (guaranteed per-paragraph location)
+            a.cc.insertText(a.ls + "\t", Word.InsertLocation.start);
+            await context.sync();
+            applied++;
+          } catch {
+            // If insertion fails, continue
+          }
+
+          // Best-effort list removal (may be ApiNotFound)
           try {
             p.detachFromList();
             await context.sync();
@@ -92,12 +114,18 @@
             if (String(e?.message || e).includes("ApiNotFound")) optionalApiNotes.add("removeNumbers");
           }
 
-          status(`Applied: ${numberedApplied}/${numberedDetected}`);
+          // Remove the anchor control but keep its contents
+          try {
+            a.cc.delete(false);
+            await context.sync();
+          } catch {}
+
+          status(`Applied: ${applied}/${detected}`);
         }
 
-        // Remove content control, keep contents
+        // Remove wrapper control but keep contents
         try {
-          cc.delete(false);
+          wrapper.delete(false);
           await context.sync();
         } catch {}
 
@@ -107,15 +135,14 @@
 
         status(
           "Complete.\n" +
-            `Detected numbered paragraphs: ${numberedDetected}\n` +
-            `Numbered paragraphs converted: ${numberedApplied}\n` +
+            `Detected numbered paragraphs: ${detected}\n` +
+            `Numbered paragraphs converted: ${applied}\n` +
             `detachFromList succeeded: ${detachWorked}\n` +
             `removeNumbers succeeded: ${removeNumbersWorked}` +
             notes
         );
       });
     } catch (e) {
-      // Do not mask real errors; but keep message readable
       status("ERROR:\n" + String(e?.message || e));
       throw e;
     }
