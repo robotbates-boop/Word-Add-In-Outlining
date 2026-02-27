@@ -1,5 +1,11 @@
 /* global Word, Office */
 
+/**
+ * dynamicNumberingToText.js
+ * VERSION: v1.0.0+2026-02-27
+ */
+
+const VERSION = "v1.0.0+2026-02-27";
 const CHUNK_SIZE = 50;
 
 (function () {
@@ -7,12 +13,15 @@ const CHUNK_SIZE = 50;
   window.WordToolkit.modules = window.WordToolkit.modules || {};
 
   window.WordToolkit.modules["dynamicNumberingToText"] = async ({ setStatus }) => {
-    const status = (m) => setStatus(`Dynamic numbering → text\n${m}`);
+    const runStamp = new Date().toISOString();
+    const status = (m) => setStatus(`Dynamic numbering → text\n${m}\n\n${VERSION}\nRun: ${runStamp}`);
 
     let detected = 0;
     let applied = 0;
     let fieldsConverted = 0;
     let fieldsSkipped = false;
+
+    status("Starting…");
 
     try {
       await Word.run(async (context) => {
@@ -25,10 +34,11 @@ const CHUNK_SIZE = 50;
           return;
         }
 
-        // Freeze selection with a wrapper content control
-        status("Freezing selection…");
+        // Freeze selection with a wrapper content control.
+        // IMPORTANT: we do NOT delete this control at the end (to avoid deleting the selection).
         const wrapper = selection.insertContentControl();
         wrapper.tag = "WordToolkit_DNTT_WRAPPER";
+        wrapper.title = `DNTT ${VERSION} ${runStamp}`;
         wrapper.appearance = "Hidden";
 
         const scope = wrapper.getRange();
@@ -99,14 +109,13 @@ const CHUNK_SIZE = 50;
           status(`Detected numbered paragraphs: ${detected}\nFields skipped (API not available).`);
         }
 
-        // Convert numbering: insert at start of paragraph range (NO RangeLocation overload)
+        // Convert numbering: insert at start of paragraph range
         status(`Converting numbering: 0/${detected}`);
         let doneNum = 0;
 
         for (const it of items) {
           const p = paras.items[it.idx];
 
-          // Use paragraph range directly; InsertLocation.start puts text at the beginning of the range.
           p.getRange().insertText(it.ls + "\t", Word.InsertLocation.start);
           applied++;
 
@@ -123,21 +132,18 @@ const CHUNK_SIZE = 50;
 
         await context.sync();
 
-        // Remove wrapper control but KEEP contents
-        try {
-          wrapper.delete(true);
-          await context.sync();
-        } catch {}
+        // IMPORTANT: no wrapper.delete(...) here.
+        // Leaving the wrapper avoids the selection being deleted in your host.
 
         status(
           "Complete.\n" +
             `Fields converted: ${fieldsConverted}${fieldsSkipped ? " (fields skipped)" : ""}\n` +
             `Numbered paragraphs detected: ${detected}\n` +
-            `Numbered paragraphs converted: ${applied}`
+            `Numbered paragraphs converted: ${applied}\n` +
+            "Note: wrapper content control left in place (hidden) to avoid deleting selection."
         );
       });
     } catch (e) {
-      // Show debugInfo if present
       const dbg = e && e.debugInfo ? JSON.stringify(e.debugInfo, null, 2) : "";
       status(
         "ERROR:\n" +
