@@ -8,12 +8,17 @@
       h3 { margin: 0 0 10px 0; }
       .btn { display: block; width: 100%; text-align: left; padding: 10px 12px; margin: 8px 0; }
       #status { white-space: pre-wrap; border: 1px solid #ddd; padding: 10px; margin-top: 10px; min-height: 70px; }
-      .small { font-size: 12px; color: #555; margin-top: 8px; }
+      .row { display:flex; gap:8px; }
+      .row button { flex:1; }
     </style>
   </head>
-
   <body>
     <h3>Modules</h3>
+
+    <div class="row">
+      <button class="btn" id="reloadBtn">Reload taskpane</button>
+      <button class="btn" id="clearCacheBtn">Clear module cache</button>
+    </div>
 
     <button class="btn" data-key="dynamicNumberingToText">Convert dynamic numbering to text</button>
     <button class="btn" data-key="manualNumberingToOutlineLevels">Convert manual numbering to outline levels</button>
@@ -23,12 +28,8 @@
     <button class="btn" data-key="outlineNumberingLegal">Outline numbering Legal (1_1.1_(a)_(i)_(A))</button>
 
     <div id="status">Ready.</div>
-    <div class="small">Tip: select text in Word first, then click a module.</div>
 
-    <!-- REQUIRED: Office.js must load before taskpane.js -->
     <script src="https://appsforoffice.microsoft.com/lib/1/hosted/office.js"></script>
-
-    <!-- Cache-bust taskpane.js; bump v= when you change taskpane.js -->
-    <script src="taskpane.js?v=999"></script>
+    <script src="taskpane.js"></script>
   </body>
 </html>
