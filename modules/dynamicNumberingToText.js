@@ -2,20 +2,10 @@
 
 /**
  * dynamicNumberingToText.js
- * VERSION: v1.3.0 (stable per-paragraph anchors)
- *
- * Method:
- * - Freeze selection with a wrapper CC.
- * - Snapshot listString for numbered paragraphs.
- * - Create a CONTENT CONTROL over each target paragraph (stable anchor).
- * - Insert listString text at start of each anchored paragraph and remove list formatting (best effort).
- * - Delete each per-paragraph CC with keepContent=true.
- * - Delete wrapper CC with keepContent=true.
+ * VERSION: v1.4.0 (tracked paragraph anchors)
  */
 
-const VERSION = "v1.3.0";
-const WRAPPER_TAG = "WordToolkit_DNTT_WRAPPER";
-const ITEM_TAG = "WordToolkit_DNTT_ITEM";
+const VERSION = "v1.4.0";
 
 (function () {
   window.WordToolkit = window.WordToolkit || {};
@@ -28,139 +18,96 @@ const ITEM_TAG = "WordToolkit_DNTT_ITEM";
     const status = (m) =>
       setStatus(`Dynamic numbering → text\n${m}\n\n${VERSION}\nRun: ${runStamp}`);
 
-    let detected = 0;
-    let anchored = 0;
-    let converted = 0;
-    let detachAttempts = 0;
-    let removeNumbersAttempts = 0;
-
     status("Starting…");
+
+    let detected = 0;
+    let inserted = 0;
+    let detachTried = 0;
+    let removeNumbersTried = 0;
 
     try {
       await Word.run(async (context) => {
-        const doc = context.document;
-        const selection = doc.getSelection();
+        const selection = context.document.getSelection();
 
-        // --- 0) Clean up any leftover item controls from previous runs (keep contents)
-        const allCCs = doc.contentControls;
-        allCCs.load("items, items/tag");
-        await context.sync();
-
-        const leftovers = allCCs.items.filter((cc) => cc.tag === ITEM_TAG || cc.tag === WRAPPER_TAG);
-        if (leftovers.length) {
-          status(`Removing ${leftovers.length} leftover control(s)…`);
-          for (const cc of leftovers) {
-            try { cc.delete(true); } catch {}
-          }
-          await context.sync();
-        }
-
-        // --- 1) Ensure selection exists
-        selection.load("text");
-        await context.sync();
-
-        if (!selection.text || selection.text.trim().length === 0) {
-          status("No selection detected. Select the numbered paragraphs first.");
-          return;
-        }
-
-        // --- 2) Freeze selection for this run
-        status("Freezing selection…");
-        const wrapper = selection.insertContentControl();
-        wrapper.tag = WRAPPER_TAG;
-        wrapper.appearance = "Hidden";
-
-        const scope = wrapper.getRange();
-
-        // --- 3) Snapshot numbered paragraphs in scope
-        status("Loading paragraphs…");
-        const paras = scope.paragraphs;
+        // Pull paragraphs from selection
+        const paras = selection.paragraphs;
         paras.load(
           "items," +
+            "items/text," +
             "items/listItemOrNullObject," +
             "items/listItemOrNullObject/isNullObject," +
             "items/listItemOrNullObject/listString"
         );
         await context.sync();
 
+        if (!paras.items.length) {
+          status("No paragraphs detected in selection.");
+          return;
+        }
+
+        // Snapshot targets and TRACK them before any edits
         const targets = [];
         for (let i = 0; i < paras.items.length; i++) {
           const p = paras.items[i];
           const li = p.listItemOrNullObject;
           const ls =
             li && li.isNullObject === false && li.listString ? String(li.listString) : "";
-          if (ls) targets.push({ idx: i, ls });
-        }
 
-        // Bottom-up to reduce interference if Word is touchy
-        targets.sort((a, b) => b.idx - a.idx);
+          if (ls) {
+            context.trackedObjects.add(p); // critical: stabilize paragraph anchor
+            targets.push({ p, ls });
+          }
+        }
+        await context.sync();
 
         detected = targets.length;
-        status(`Numbered detected: ${detected}\nCreating anchors…`);
 
-        // --- 4) Create a stable CONTENT CONTROL over each target paragraph
-        // Important: this anchors the paragraph location so edits don't drift.
-        const itemControls = [];
+        // Quick diagnostic line so you can see what it thinks it will process
+        status(
+          `Selection paragraphs: ${paras.items.length}\n` +
+          `Numbered detected (listString): ${detected}\n` +
+          `Inserting labels…`
+        );
+
+        // Bottom-up tends to reduce interference; still track objects is the main fix
+        targets.reverse();
+
+        // PASS 1: insert labels (sync per paragraph)
+        for (let i = 0; i < targets.length; i++) {
+          const { p, ls } = targets[i];
+
+          // Insert at start of paragraph using Paragraph API (not range)
+          p.insertText(ls + "\t", Word.InsertLocation.start);
+          await context.sync();
+
+          inserted++;
+          status(`Inserted: ${inserted}/${detected}`);
+        }
+
+        // PASS 2 (optional): attempt to remove list formatting after all insertions
+        // Keeping it separate reduces the chance that list operations disturb anchors.
+        status("Attempting to remove list formatting (best effort)…");
+
+        for (let i = 0; i < targets.length; i++) {
+          const { p } = targets[i];
+
+          try { p.detachFromList(); detachTried++; } catch {}
+          try { p.getRange().listFormat.removeNumbers(); removeNumbersTried++; } catch {}
+        }
+        await context.sync();
+
+        // Untrack objects (cleanup)
         for (const t of targets) {
-          const p = paras.items[t.idx];
-          const pr = p.getRange(); // full paragraph range
-          const cc = pr.insertContentControl();
-          cc.tag = ITEM_TAG;
-          cc.title = t.ls;          // stash listString
-          cc.appearance = "Hidden";
-          itemControls.push(cc);
+          try { context.trackedObjects.remove(t.p); } catch {}
         }
-        anchored = itemControls.length;
-        await context.sync();
-
-        status(`Anchors created: ${anchored}\nConverting…`);
-
-        // --- 5) Convert each anchored paragraph
-        // We do NOT use the old Paragraph objects anymore; we use the CC ranges (stable).
-        for (let i = 0; i < itemControls.length; i++) {
-          const cc = itemControls[i];
-          const ls = cc.title || "";
-
-          const r = cc.getRange();
-          // Insert the marker as plain text at the start of the anchored paragraph
-          r.insertText(ls + "\t", Word.InsertLocation.start);
-
-          // Best-effort list removal: operate on first paragraph inside the control
-          try {
-            const p = r.paragraphs.getFirst();
-            p.detachFromList();
-            detachAttempts++;
-          } catch {}
-
-          try {
-            const p = r.paragraphs.getFirst();
-            p.getRange().listFormat.removeNumbers();
-            removeNumbersAttempts++;
-          } catch {}
-
-          // Delete control but KEEP contents (critical)
-          try { cc.delete(true); } catch {}
-
-          // Sync occasionally (or every time if you prefer)
-          if ((i + 1) % 10 === 0) {
-            await context.sync();
-            status(`Converted: ${i + 1}/${anchored}`);
-          }
-          converted = i + 1;
-        }
-        await context.sync();
-
-        // --- 6) Remove wrapper but KEEP contents (critical)
-        try { wrapper.delete(true); } catch {}
         await context.sync();
 
         status(
           "Complete.\n" +
-            `Numbered detected: ${detected}\n` +
-            `Anchored: ${anchored}\n` +
-            `Converted: ${converted}\n` +
-            `detachFromList attempts: ${detachAttempts}\n` +
-            `removeNumbers attempts: ${removeNumbersAttempts}`
+          `Numbered detected: ${detected}\n` +
+          `Labels inserted: ${inserted}\n` +
+          `detachFromList attempted: ${detachTried}\n` +
+          `removeNumbers attempted: ${removeNumbersTried}`
         );
       });
     } catch (e) {
