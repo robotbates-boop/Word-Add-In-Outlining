@@ -1,10 +1,8 @@
 /* global Office */
 
-const TASKPANE_VERSION = "taskpane.js v1.0.0 2026-02-27T21:10Z";
-
-// Change this when you deploy new code.
-// You can set it to Date.now() for maximum busting, but a manual bump is usually enough.
-const BUILD_ID = "20260227-2110";
+const TASKPANE_VERSION = "taskpane.js vNC-1 2026-02-27"; // update this string whenever you want
+// Never-cache build id for this taskpane load
+const BUILD_ID = Date.now().toString();
 
 (function () {
   function setStatus(text) {
@@ -16,6 +14,7 @@ const BUILD_ID = "20260227-2110";
   window.WordToolkit.modules = window.WordToolkit.modules || {};
   window.WordToolkit.versions = window.WordToolkit.versions || {};
 
+  // Paths must match your repo exactly (case-sensitive)
   const MODULE_SCRIPTS = [
     ["dynamicNumberingToText", "modules/dynamicNumberingToText.js"],
     ["manualNumberingToOutlineLevels", "modules/manualNumberingToOutlineLevels.js"],
@@ -28,7 +27,7 @@ const BUILD_ID = "20260227-2110";
   function loadScript(src) {
     return new Promise((resolve, reject) => {
       const s = document.createElement("script");
-      // Cache-bust
+      // NEVER CACHED: each taskpane load gets a fresh BUILD_ID
       s.src = `${src}?v=${encodeURIComponent(BUILD_ID)}`;
       s.onload = resolve;
       s.onerror = () => reject(new Error(`Failed to load script: ${src}`));
@@ -37,22 +36,22 @@ const BUILD_ID = "20260227-2110";
   }
 
   async function loadAllModules() {
-    // Reset module registry each load to avoid mixing old/new
+    // Reset registries so we can see what loaded THIS time
     window.WordToolkit.modules = {};
     window.WordToolkit.versions = {};
 
     setStatus(
-      `Loading modules...\n` +
-      `${TASKPANE_VERSION}\n` +
-      `BUILD_ID: ${BUILD_ID}\n` +
-      `Load time: ${new Date().toISOString()}`
+      `Loading modules...\n\n` +
+        `${TASKPANE_VERSION}\n` +
+        `BUILD_ID: ${BUILD_ID}\n` +
+        `Loaded at: ${new Date().toISOString()}`
     );
 
     for (const [, src] of MODULE_SCRIPTS) {
       setStatus(
         `Loading modules...\n${src}\n\n` +
-        `${TASKPANE_VERSION}\nBUILD_ID: ${BUILD_ID}\n` +
-        `Load time: ${new Date().toISOString()}`
+          `${TASKPANE_VERSION}\nBUILD_ID: ${BUILD_ID}\n` +
+          `Loaded at: ${new Date().toISOString()}`
       );
       await loadScript(src);
     }
@@ -67,11 +66,11 @@ const BUILD_ID = "20260227-2110";
 
     setStatus(
       `Ready.\n\n` +
-      `${TASKPANE_VERSION}\n` +
-      `BUILD_ID: ${BUILD_ID}\n` +
-      `Loaded at: ${new Date().toISOString()}\n\n` +
-      `Loaded keys: ${keys.join(", ") || "(none)"}\n\n` +
-      `Module versions:\n${vlines || "(none)"}`
+        `${TASKPANE_VERSION}\n` +
+        `BUILD_ID: ${BUILD_ID}\n` +
+        `Loaded at: ${new Date().toISOString()}\n\n` +
+        `Loaded keys: ${keys.join(", ") || "(none)"}\n\n` +
+        `Module versions:\n${vlines || "(none)"}`
     );
   }
 
@@ -80,7 +79,7 @@ const BUILD_ID = "20260227-2110";
     if (typeof fn !== "function") {
       throw new Error(
         `Module not found or not a function: ${key}\n` +
-        `Loaded keys: ${Object.keys(window.WordToolkit.modules).join(", ") || "(none)"}`
+          `Loaded keys: ${Object.keys(window.WordToolkit.modules).join(", ") || "(none)"}`
       );
     }
     await fn({ setStatus });
@@ -89,16 +88,13 @@ const BUILD_ID = "20260227-2110";
   function wireButtons() {
     const reloadBtn = document.getElementById("reloadBtn");
     if (reloadBtn) {
-      reloadBtn.addEventListener("click", () => {
-        // Reload the taskpane page. When it comes back, it will show versions.
-        location.reload();
-      });
+      reloadBtn.addEventListener("click", () => location.reload());
     }
 
     const clearCacheBtn = document.getElementById("clearCacheBtn");
     if (clearCacheBtn) {
       clearCacheBtn.addEventListener("click", async () => {
-        // Clear in-memory registry and reload modules immediately
+        // In never-cache mode, just reload modules again
         await loadAllModules();
       });
     }
@@ -107,8 +103,14 @@ const BUILD_ID = "20260227-2110";
       btn.addEventListener("click", async () => {
         const key = btn.getAttribute("data-key");
         if (!key) return;
+
         try {
-          setStatus(`Running: ${key}\n${TASKPANE_VERSION}\nBUILD_ID: ${BUILD_ID}\nTime: ${new Date().toISOString()}`);
+          setStatus(
+            `Running: ${key}\n\n` +
+              `${TASKPANE_VERSION}\n` +
+              `BUILD_ID: ${BUILD_ID}\n` +
+              `Time: ${new Date().toISOString()}`
+          );
           await runModule(key);
         } catch (e) {
           setStatus(`ERROR running ${key}:\n${String(e?.message || e)}`);
@@ -119,7 +121,12 @@ const BUILD_ID = "20260227-2110";
   }
 
   Office.onReady(async () => {
-    wireButtons();
-    await loadAllModules();
+    try {
+      wireButtons();
+      await loadAllModules();
+    } catch (e) {
+      setStatus(`Startup error:\n${String(e?.message || e)}`);
+      throw e;
+    }
   });
 })();
