@@ -9,7 +9,7 @@ const CHUNK_SIZE = 200;
   window.WordToolkit.modules["dynamicNumberingToText"] = async ({ setStatus }) => {
     const status = (m) => setStatus(`Dynamic numbering → text\n${m}`);
 
-    status("Starting…");
+    status("Starting...");
 
     let fieldsConverted = 0;
     let numberedConverted = 0;
@@ -22,9 +22,17 @@ const CHUNK_SIZE = 200;
       await Word.run(async (context) => {
         const body = context.document.body;
 
-        // A) Snapshot list labels
-        status("Loading paragraphs…");
-        const paragraphs = body.paragraphs;
+        // 1) Decide target range: selection if non-empty, else whole body
+        const sel = context.document.getSelection();
+        sel.load("text");
+        await context.sync();
+
+        const targetRange =
+          (sel.text && sel.text.trim().length > 0) ? sel : body.getRange();
+
+        // 2) Snapshot paragraphs in the target range (safe list detection)
+        status("Loading paragraphs in selection...");
+        const paragraphs = targetRange.paragraphs;
         paragraphs.load(
           "items," +
             "items/listItemOrNullObject," +
@@ -33,28 +41,19 @@ const CHUNK_SIZE = 200;
         );
         await context.sync();
 
-        const listItems = [];
-        for (let i = 0; i < paragraphs.items.length; i++) {
-          const p = paragraphs.items[i];
-          const li = p.listItemOrNullObject;
-          if (li && li.isNullObject === false) {
-            const ls = li.listString ? String(li.listString) : "";
-            if (ls) listItems.push({ index: i, listString: ls });
-          }
-        }
-        listItems.sort((a, b) => b.index - a.index);
-
-        // B) Fields -> plain text (best-effort; skip if API missing)
+        // 3) Convert fields within the same target range (best-effort)
         try {
-          status(`Found numbered paragraphs: ${listItems.length}\nLoading fields…`);
-          const fields = body.fields; // may throw ApiNotFound
+          status(`Paragraphs in scope: ${paragraphs.items.length}\nLoading fields in scope...`);
+
+          const fields = targetRange.fields; // may throw ApiNotFound in some hosts
           fields.load("items");
           await context.sync();
 
-          const canUnlink = Office?.context?.requirements?.isSetSupported?.("WordApiDesktop", "1.4") === true;
-          const fieldArray = fields.items.slice().reverse();
+          const canUnlink =
+            Office?.context?.requirements?.isSetSupported?.("WordApiDesktop", "1.4") === true;
 
-          status(`Fields found: ${fieldArray.length}\nConverting fields…`);
+          const fieldArray = fields.items.slice().reverse();
+          status(`Fields found: ${fieldArray.length}\nConverting fields...`);
 
           let done = 0;
           for (const f of fieldArray) {
@@ -62,7 +61,7 @@ const CHUNK_SIZE = 200;
               try { f.updateResult(); } catch {}
 
               if (canUnlink) {
-                f.unlink();
+                f.unlink(); // desktop-only
               } else {
                 const r = f.getRange();
                 r.load("text");
@@ -71,6 +70,7 @@ const CHUNK_SIZE = 200;
                 r.insertText(t, Word.InsertLocation.replace);
                 try { f.delete(); } catch {}
               }
+
               fieldsConverted++;
             } catch {}
 
@@ -83,55 +83,43 @@ const CHUNK_SIZE = 200;
           await context.sync();
         } catch {
           fieldsSkipped = true;
-          status("Fields step skipped (API not available).\nContinuing…");
+          status("Fields step skipped (API not available).\nContinuing...");
         }
 
-        // C) Numbering -> text + TRY remove list formatting (safe probes)
-        status(`Converting numbering: 0/${listItems.length}`);
+        // 4) Convert numbering bottom-up across ALL paragraphs in the target range
+        status("Converting list/outline numbering (bottom-up)...");
         let done = 0;
 
-        for (const it of listItems) {
-          const p = paragraphs.items[it.index];
+        for (let i = paragraphs.items.length - 1; i >= 0; i--) {
+          const p = paragraphs.items[i];
+          const li = p.listItemOrNullObject;
 
-          // Insert the current list label as text at the paragraph start
-          p.insertText(it.listString + "\t", Word.InsertLocation.start);
-          numberedConverted++;
+          if (li && li.isNullObject === false) {
+            const ls = li.listString ? String(li.listString) : "";
+            if (ls) {
+              // Insert the displayed label as plain text
+              p.insertText(ls + "\t", Word.InsertLocation.start);
+              numberedConverted++;
 
-          // Try detachFromList (may be ApiNotFound on your host)
-          try {
-            p.detachFromList();
-            detachSucceeded++;
-          } catch {}
-
-          // Try removeNumbers (may be ApiNotFound on your host)
-          try {
-            p.getRange().listFormat.removeNumbers();
-            removeNumbersSucceeded++;
-          } catch {}
+              // Remove list formatting (best-effort)
+              try { p.detachFromList(); detachSucceeded++; } catch {}
+              try { p.getRange().listFormat.removeNumbers(); removeNumbersSucceeded++; } catch {}
+            }
+          }
 
           done++;
           if (done % CHUNK_SIZE === 0) {
-            status(`Converting numbering: ${done}/${listItems.length}`);
+            status(`Processed paragraphs: ${done}/${paragraphs.items.length}`);
             await context.sync();
           }
         }
 
         await context.sync();
 
-        const report =
-          "REPORT: Dynamic numbering → text\n" +
-          `Fields converted: ${fieldsConverted}${fieldsSkipped ? " (fields skipped)" : ""}\n` +
-          `Numbered paragraphs processed: ${numberedConverted}\n` +
-          `detachFromList succeeded: ${detachSucceeded}\n` +
-          `removeNumbers succeeded: ${removeNumbersSucceeded}`;
-
-        body.insertParagraph(report, Word.InsertLocation.end);
-        await context.sync();
-
         status(
           "Complete.\n" +
             `Fields converted: ${fieldsConverted}${fieldsSkipped ? " (fields skipped)" : ""}\n` +
-            `Numbered paragraphs processed: ${numberedConverted}\n` +
+            `Numbered paragraphs converted: ${numberedConverted}\n` +
             `detachFromList succeeded: ${detachSucceeded}\n` +
             `removeNumbers succeeded: ${removeNumbersSucceeded}`
         );
