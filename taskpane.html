@@ -33,7 +33,9 @@
     <!-- Office.js MUST be present -->
     <script src="https://appsforoffice.microsoft.com/lib/1/hosted/office.js"></script>
 
-    <!-- Bootstrap (cache-busted) -->
-    <script src="taskpane.js?v=20260227-2230"></script>
+    <!-- Bootstrap: NEVER CACHED (debug mode) -->
+    <script>
+      document.write('<script src="taskpane.js?v=' + Date.now() + '"><\/script>');
+    </script>
   </body>
 </html>
