@@ -5,9 +5,7 @@
            xmlns:ov="http://schemas.microsoft.com/office/taskpaneappversionoverrides"
            xsi:type="TaskPaneApp">
 
-  <!-- Keep this GUID stable once you start using it -->
   <Id>8c7d0f7b-6a53-4a0d-9b8f-3a3c0b4c9f21</Id>
-
   <Version>1.0.0.0</Version>
   <ProviderName>robotbates-boop</ProviderName>
   <DefaultLocale>en-GB</DefaultLocale>
@@ -15,10 +13,8 @@
   <DisplayName DefaultValue="Word Tools"/>
   <Description DefaultValue="Word utilities (module menu)."/>
 
-  <!-- These icon files must exist at these URLs (or change them to match your repo files) -->
   <IconUrl DefaultValue="https://robotbates-boop.github.io/Word-Add-In-Outlining/icon-32.png"/>
   <HighResolutionIconUrl DefaultValue="https://robotbates-boop.github.io/Word-Add-In-Outlining/icon-80.png"/>
-
   <SupportUrl DefaultValue="https://robotbates-boop.github.io/Word-Add-In-Outlining/"/>
 
   <AppDomains>
@@ -39,13 +35,10 @@
     <Hosts>
       <Host xsi:type="Document">
         <DesktopFormFactor>
-
-          <!-- Button on the Home tab -->
           <ExtensionPoint xsi:type="PrimaryCommandSurface">
             <OfficeTab id="TabHome">
               <Group id="grpWordTools">
                 <Label resid="grpLabel"/>
-
                 <Control xsi:type="Button" id="btnShowTools">
                   <Label resid="btnLabel"/>
                   <Supertip>
@@ -62,11 +55,9 @@
                     <SourceLocation resid="taskpaneUrl"/>
                   </Action>
                 </Control>
-
               </Group>
             </OfficeTab>
           </ExtensionPoint>
-
         </DesktopFormFactor>
       </Host>
     </Hosts>
