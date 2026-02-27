@@ -7,7 +7,7 @@
       body { font-family: Segoe UI, Arial, sans-serif; margin: 12px; }
       h3 { margin: 0 0 10px 0; }
       .btn { display: block; width: 100%; text-align: left; padding: 10px 12px; margin: 8px 0; }
-      #status { white-space: pre-wrap; border: 1px solid #ddd; padding: 10px; margin-top: 10px; min-height: 70px; }
+      #status { white-space: pre-wrap; border: 1px solid #ddd; padding: 10px; margin-top: 10px; min-height: 90px; }
       .row { display: flex; gap: 8px; }
       .row .btn { flex: 1; }
     </style>
@@ -28,12 +28,12 @@
     <button class="btn" data-key="outlineNumberingDecimal">Outline numbering (1_1.1_1.1.1_1.1.1.1_1.1.1.1.1)</button>
     <button class="btn" data-key="outlineNumberingLegal">Outline numbering Legal (1_1.1_(a)_(i)_(A))</button>
 
-    <div id="status">Ready.</div>
+    <div id="status">Loading…</div>
 
-    <!-- Office.js first -->
+    <!-- Office.js MUST be present -->
     <script src="https://appsforoffice.microsoft.com/lib/1/hosted/office.js"></script>
 
-    <!-- Bootstrap (stable). It will always load latest taskpane_main.js -->
+    <!-- Bootstrap (kept stable) -->
     <script src="taskpane.js"></script>
   </body>
 </html>
