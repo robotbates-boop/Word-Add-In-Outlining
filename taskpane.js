@@ -47,7 +47,7 @@
       setStatus(`Loading modules...\n${src}`);
       await loadScript(src);
     }
-    setStatus("Modules loaded.");
+    setStatus("Modules loaded.\nKeys: " + (Object.keys(window.WordToolkit.modules).join(", ") || "(none)"));
   }
 
   // ----------------------------
