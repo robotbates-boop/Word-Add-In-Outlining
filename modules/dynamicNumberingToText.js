@@ -1,17 +1,13 @@
 /* global Word, Office */
 
-// Dynamic numbering (lists/outline) -> plain text, plus fields -> plain text.
-// This version registers by direct assignment to WordToolkit.modules[...] to avoid any
-// register() implementation mismatch.
-
 const CHUNK_SIZE = 200;
 
 (function () {
-  // Ensure the exact registry shape taskpane_main.js expects
+  // Ensure the registry the taskpane uses
   window.WordToolkit = window.WordToolkit || {};
   window.WordToolkit.modules = window.WordToolkit.modules || {};
 
-  // Key MUST match: data-key="dynamicNumberingToText"
+  // Must match data-key exactly:
   window.WordToolkit.modules["dynamicNumberingToText"] = async ({ setStatus }) => {
     const status = (m) => setStatus(`Dynamic numbering → text\n${m}`);
 
@@ -43,21 +39,20 @@ const CHUNK_SIZE = 200;
         }
         listItems.sort((a, b) => b.index - a.index);
 
-        // B) Convert fields to plain text (skip if API not available -> ApiNotFound)
+        // B) Convert fields (skip if ApiNotFound)
         let fieldCount = 0;
         let usedUnlink = false;
 
         try {
           status(`Found numbered paragraphs: ${listItems.length}\nLoading fields…`);
 
-          const fields = body.fields; // may throw ApiNotFound on some builds
+          const fields = body.fields; // can throw ApiNotFound on some hosts
           fields.load("items");
           await context.sync();
 
-          const canUnlink =
-            Office.context.requirements?.isSetSupported?.("WordApiDesktop", "1.4") === true;
-
+          const canUnlink = Office.context.requirements?.isSetSupported?.("WordApiDesktop", "1.4") === true;
           const fieldArray = fields.items.slice().reverse();
+
           fieldCount = fieldArray.length;
           usedUnlink = canUnlink;
 
@@ -112,7 +107,6 @@ const CHUNK_SIZE = 200;
 
         await context.sync();
 
-        // Also write a report into the document so you can always see it
         const report =
           "REPORT: Dynamic numbering → text\n" +
           `Fields converted: ${fieldCount} (${usedUnlink ? "unlink" : "fallback/skip"})\n` +
