@@ -1,7 +1,5 @@
 /* global Word, Office */
 
-const CHUNK_SIZE = 200;
-
 (function () {
   window.WordToolkit = window.WordToolkit || {};
   window.WordToolkit.modules = window.WordToolkit.modules || {};
@@ -9,18 +7,12 @@ const CHUNK_SIZE = 200;
   window.WordToolkit.modules["dynamicNumberingToText"] = async ({ setStatus }) => {
     const status = (m) => setStatus(`Dynamic numbering → text\n${m}`);
 
-    let fieldsConverted = 0;
-    let numberedConverted = 0;
-    let fieldsSkipped = false;
-    let detachTried = 0;
-    let removeNumbersTried = 0;
-
     try {
       await Word.run(async (context) => {
         const body = context.document.body;
         const selection = context.document.getSelection();
 
-        // Ensure there is a real selection
+        // Freeze scope: wrap selection in a temp content control
         selection.load("text");
         await context.sync();
 
@@ -29,138 +21,84 @@ const CHUNK_SIZE = 200;
           return;
         }
 
-        status("Freezing selection…");
-
-        // 1) Freeze the selection with a temporary content control
         const cc = selection.insertContentControl();
-        cc.tag = "WordToolkit_DynamicNumberingToText";
-        cc.appearance = "Hidden"; // keep UI clean
-        cc.cannotEdit = false;
-        cc.cannotDelete = false;
+        cc.tag = "WordToolkit_DNTT";
+        cc.appearance = "Hidden";
 
         const scope = cc.getRange();
-        await context.sync();
 
-        // 2) Snapshot list labels within the frozen scope
-        status("Loading paragraphs in frozen scope…");
-        const paragraphs = scope.paragraphs;
-        paragraphs.load(
+        // Load paragraphs with style + list info
+        const paras = scope.paragraphs;
+        paras.load(
           "items," +
+            "items/style," +
             "items/listItemOrNullObject," +
             "items/listItemOrNullObject/isNullObject," +
             "items/listItemOrNullObject/listString"
         );
         await context.sync();
 
-        // Capture list strings bottom-up
-        const listItems = [];
-        for (let i = 0; i < paragraphs.items.length; i++) {
-          const p = paragraphs.items[i];
+        const total = paras.items.length;
+        const convertible = [];
+        const notConvertible = [];
+
+        for (let i = 0; i < paras.items.length; i++) {
+          const p = paras.items[i];
           const li = p.listItemOrNullObject;
-          if (li && li.isNullObject === false) {
-            const ls = li.listString ? String(li.listString) : "";
-            if (ls) listItems.push({ index: i, listString: ls });
+          const ls = (li && li.isNullObject === false && li.listString) ? String(li.listString) : "";
+
+          if (ls) {
+            convertible.push({ i, ls, style: p.style || "" });
+          } else {
+            notConvertible.push({ i, style: p.style || "" });
           }
         }
-        listItems.sort((a, b) => b.index - a.index);
 
-        status(`Paragraphs in scope: ${paragraphs.items.length}\nList items detected: ${listItems.length}`);
+        // Report what the API can actually see
+        let report =
+          "DIAGNOSTIC: What Office.js can see\n" +
+          `Paragraphs in selection: ${total}\n` +
+          `Convertible (has listString): ${convertible.length}\n` +
+          `Not convertible (no listString): ${notConvertible.length}\n\n`;
 
-        // 3) Convert fields within scope to plain text (best-effort)
-        try {
-          status("Loading fields in scope…");
-          const fields = scope.fields; // may be ApiNotFound on some hosts
-          fields.load("items");
-          await context.sync();
-
-          const canUnlink =
-            Office?.context?.requirements?.isSetSupported?.("WordApiDesktop", "1.4") === true;
-
-          const fieldArray = fields.items.slice().reverse();
-          status(`Fields found: ${fieldArray.length}\nConverting fields…`);
-
-          let done = 0;
-          for (const f of fieldArray) {
-            try {
-              try { f.updateResult(); } catch {}
-
-              if (canUnlink) {
-                f.unlink(); // desktop-only
-              } else {
-                const r = f.getRange();
-                r.load("text");
-                await context.sync();
-                r.insertText(r.text || "", Word.InsertLocation.replace);
-                try { f.delete(); } catch {}
-              }
-              fieldsConverted++;
-            } catch {}
-
-            done++;
-            if (done % CHUNK_SIZE === 0) {
-              status(`Converting fields: ${done}/${fieldArray.length}`);
-              await context.sync();
-            }
+        if (notConvertible.length) {
+          report += "Not-convertible paragraph styles (first 30):\n";
+          for (const x of notConvertible.slice(0, 30)) {
+            report += `#${x.i}  style="${x.style}"\n`;
           }
-          await context.sync();
-        } catch {
-          fieldsSkipped = true;
-          status("Fields step skipped (API not available). Continuing…");
+          report += "\nIf these are Heading 1/2/3 etc., your numbering is style-driven and Office.js will not expose the number string.\n";
         }
 
-        // 4) Apply numbering-as-text and remove list formatting (bottom-up)
-        status(`Converting numbering: 0/${listItems.length}`);
+        // Convert only what is convertible (bottom-up)
+        convertible.sort((a, b) => b.i - a.i);
 
-        let doneNum = 0;
-        for (const it of listItems) {
-          const p = paragraphs.items[it.index];
-
-          // Insert list label as text at start of paragraph
-          p.insertText(it.listString + "\t", Word.InsertLocation.start);
-          numberedConverted++;
-
-          // Try remove list formatting (some hosts may not support these)
-          try { p.detachFromList(); detachTried++; } catch {}
-          try { p.getRange().listFormat.removeNumbers(); removeNumbersTried++; } catch {}
-
-          doneNum++;
-          if (doneNum % CHUNK_SIZE === 0) {
-            status(`Converting numbering: ${doneNum}/${listItems.length}`);
-            await context.sync();
-          }
+        for (const it of convertible) {
+          const p = paras.items[it.i];
+          p.insertText(it.ls + "\t", Word.InsertLocation.start);
+          try { p.detachFromList(); } catch {}
+          try { p.getRange().listFormat.removeNumbers(); } catch {}
         }
+
         await context.sync();
 
-        // 5) Remove the content control but keep contents
-        status("Cleaning up…");
+        // Remove content control, keep contents
         try { cc.delete(false); } catch {}
         await context.sync();
 
-        // 6) Final status (do NOT throw ApiNotFound after success)
+        // Put report at end of document so you can see it
+        body.insertParagraph(report, Word.InsertLocation.end);
+        await context.sync();
+
         status(
           "Complete.\n" +
-            `Fields converted: ${fieldsConverted}${fieldsSkipped ? " (fields skipped)" : ""}\n` +
-            `Numbered paragraphs converted: ${numberedConverted}\n` +
-            `detachFromList calls attempted: ${detachTried}\n` +
-            `removeNumbers calls attempted: ${removeNumbersTried}`
+          `Paragraphs in selection: ${total}\n` +
+          `Converted (listString): ${convertible.length}\n` +
+          `Unconverted (no listString): ${notConvertible.length}\n` +
+          "A diagnostic report was appended to the end of the document."
         );
       });
     } catch (e) {
-      const msg = String(e?.message || e);
-
-      // If Word reports ApiNotFound after completing edits, treat it as a limitation, not a failure.
-      if (msg.includes("ApiNotFound")) {
-        status(
-          "Complete (with host limitations).\n" +
-            "Some optional Word APIs were unavailable, but the conversion step ran.\n\n" +
-            `Details: ${msg}\n` +
-            `Fields converted: ${fieldsConverted}${fieldsSkipped ? " (fields skipped)" : ""}\n` +
-            `Numbered paragraphs converted: ${numberedConverted}`
-        );
-        return;
-      }
-
-      status("ERROR:\n" + msg);
+      status("ERROR:\n" + String(e?.message || e));
       throw e;
     }
   };
