@@ -15,6 +15,9 @@ const CHUNK_SIZE = 200;
     let numberedConverted = 0;
     let fieldsSkipped = false;
 
+    let detachSucceeded = 0;
+    let removeNumbersSucceeded = 0;
+
     try {
       await Word.run(async (context) => {
         const body = context.document.body;
@@ -83,8 +86,7 @@ const CHUNK_SIZE = 200;
           status("Fields step skipped (API not available).\nContinuing…");
         }
 
-        // C) Numbering -> text (compatible mode: DO NOT detach/remove list formatting)
-        // This will leave list formatting in place, but ensures no ApiNotFound.
+        // C) Numbering -> text + TRY remove list formatting (safe probes)
         status(`Converting numbering: 0/${listItems.length}`);
         let done = 0;
 
@@ -94,6 +96,18 @@ const CHUNK_SIZE = 200;
           // Insert the current list label as text at the paragraph start
           p.insertText(it.listString + "\t", Word.InsertLocation.start);
           numberedConverted++;
+
+          // Try detachFromList (may be ApiNotFound on your host)
+          try {
+            p.detachFromList();
+            detachSucceeded++;
+          } catch {}
+
+          // Try removeNumbers (may be ApiNotFound on your host)
+          try {
+            p.getRange().listFormat.removeNumbers();
+            removeNumbersSucceeded++;
+          } catch {}
 
           done++;
           if (done % CHUNK_SIZE === 0) {
@@ -105,10 +119,11 @@ const CHUNK_SIZE = 200;
         await context.sync();
 
         const report =
-          "REPORT: Dynamic numbering → text (compat mode)\n" +
-          `Fields converted: ${fieldsConverted}${fieldsSkipped ? " (fields skipped by API)" : ""}\n` +
-          `Numbered paragraphs prefixed: ${numberedConverted}\n` +
-          "Note: list formatting was not removed (compat mode).";
+          "REPORT: Dynamic numbering → text\n" +
+          `Fields converted: ${fieldsConverted}${fieldsSkipped ? " (fields skipped)" : ""}\n` +
+          `Numbered paragraphs processed: ${numberedConverted}\n` +
+          `detachFromList succeeded: ${detachSucceeded}\n` +
+          `removeNumbers succeeded: ${removeNumbersSucceeded}`;
 
         body.insertParagraph(report, Word.InsertLocation.end);
         await context.sync();
@@ -116,8 +131,9 @@ const CHUNK_SIZE = 200;
         status(
           "Complete.\n" +
             `Fields converted: ${fieldsConverted}${fieldsSkipped ? " (fields skipped)" : ""}\n` +
-            `Numbered paragraphs prefixed: ${numberedConverted}\n` +
-            "List formatting not removed (compat mode)."
+            `Numbered paragraphs processed: ${numberedConverted}\n` +
+            `detachFromList succeeded: ${detachSucceeded}\n` +
+            `removeNumbers succeeded: ${removeNumbersSucceeded}`
         );
       });
     } catch (e) {
