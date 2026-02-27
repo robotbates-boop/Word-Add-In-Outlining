@@ -1,18 +1,29 @@
-/* global Word */
+<!doctype html>
+<html>
+  <head>
+    <meta charset="utf-8" />
+    <title>Word Tools</title>
+    <style>
+      body { font-family: Segoe UI, Arial, sans-serif; margin: 12px; }
+      h3 { margin: 0 0 10px 0; }
+      .btn { display: block; width: 100%; text-align: left; padding: 10px 12px; margin: 8px 0; }
+      #status { white-space: pre-wrap; border: 1px solid #ddd; padding: 10px; margin-top: 10px; min-height: 70px; }
+      .small { font-size: 12px; color: #555; margin-top: 8px; }
+    </style>
+  </head>
+  <body>
+    <h3>Modules</h3>
 
-// Placeholder module. Will be implemented later.
-(function () {
-  window.WordToolkit = window.WordToolkit || { modules: {}, register: (k, f) => (window.WordToolkit.modules[k] = f) };
+    <button class="btn" data-key="dynamicNumberingToText">Convert dynamic numbering to text</button>
+    <button class="btn" data-key="manualNumberingToOutlineLevels">Convert manual numbering to outline levels</button>
+    <button class="btn" data-key="applyStyleTemplateToSelected">Apply style template to selected</button>
+    <button class="btn" data-key="automaticCrossReferencingToSelected">Automatic Cross referencing to selected</button>
+    <button class="btn" data-key="outlineNumberingDecimal">Outline numbering (1_1.1_1.1.1_1.1.1.1_1.1.1.1.1)</button>
+    <button class="btn" data-key="outlineNumberingLegal">Outline numbering Legal (1_1.1_(a)_(i)_(A))</button>
 
-  window.WordToolkit.register("outlineNumberingLegal", async ({ setStatus }) => {
-    setStatus("Not implemented yet (outline numbering legal).");
+    <div id="status">Ready.</div>
+    <div class="small">Tip: select text in Word first, then click a module.</div>
 
-    await Word.run(async (context) => {
-      context.document.body.insertParagraph(
-        "outlineNumberingLegal: placeholder ran",
-        Word.InsertLocation.end
-      );
-      await context.sync();
-    });
-  });
-})();
+    <script src="taskpane.js"></script>
+  </body>
+</html>
