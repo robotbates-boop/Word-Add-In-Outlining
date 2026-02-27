@@ -75,14 +75,18 @@
       reloadBtn.addEventListener("click", () => location.reload());
     }
 
-    const clearCacheBtn = document.getElementById("clearCacheBtn");
-    if (clearCacheBtn) {
-      clearCacheBtn.addEventListener("click", () => {
-        // Clear module functions only (simple + safe)
-        window.WordToolkit.modules = {};
-        setStatus("Module cache cleared.\nReload taskpane to re-load modules.");
-      });
+  const clearCacheBtn = document.getElementById("clearCacheBtn");
+if (clearCacheBtn) {
+  clearCacheBtn.addEventListener("click", async () => {
+    window.WordToolkit.modules = {};
+    try {
+      await loadAllModules();
+      setStatus("Module cache cleared and modules reloaded.\nReady.");
+    } catch (e) {
+      setStatus(`Module reload failed:\n${String(e?.message || e)}`);
     }
+  });
+}
 
     // All module buttons
     document.querySelectorAll("button[data-key]").forEach((btn) => {
