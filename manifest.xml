@@ -1,27 +1,95 @@
-<!doctype html>
-<html>
-  <head>
-    <meta charset="utf-8" />
-    <title>Word Outline Toolkit</title>
-    <style>
-      body { font-family: Segoe UI, Arial, sans-serif; margin: 12px; }
-      h3 { margin: 0 0 10px 0; }
-      .btn { display: block; width: 100%; text-align: left; padding: 10px 12px; margin: 8px 0; }
-      #status { white-space: pre-wrap; border: 1px solid #ddd; padding: 10px; margin-top: 10px; min-height: 60px; }
-    </style>
-  </head>
-  <body>
-    <h3>Modules</h3>
+<?xml version="1.0" encoding="UTF-8"?>
+<OfficeApp xmlns="http://schemas.microsoft.com/office/appforoffice/1.1"
+           xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+           xmlns:bt="http://schemas.microsoft.com/office/officeappbasictypes/1.0"
+           xmlns:ov="http://schemas.microsoft.com/office/taskpaneappversionoverrides"
+           xsi:type="TaskPaneApp">
 
-    <button class="btn" data-module="modules/dynamicNumberingToText.js">Convert dynamic numbering to text</button>
-    <button class="btn" data-module="modules/manualNumberingToOutlineLevels.js">Convert manual numbering to outline levels</button>
-    <button class="btn" data-module="modules/applyStyleTemplateToSelected.js">Apply style template to selected</button>
-    <button class="btn" data-module="modules/autoCrossReferenceSelected.js">Automatic cross referencing to selected</button>
-    <button class="btn" data-module="modules/outlineNumberingDecimal.js">Outline numbering (1 / 1.1 / 1.1.1 / 1.1.1.1 / 1.1.1.1.1)</button>
-    <button class="btn" data-module="modules/outlineNumberingLegal.js">Outline numbering Legal (1 / 1.1 / (a) / (i) / (A))</button>
+  <!-- Keep this GUID stable once you start using it -->
+  <Id>8c7d0f7b-6a53-4a0d-9b8f-3a3c0b4c9f21</Id>
 
-    <div id="status">Ready.</div>
+  <Version>1.0.0.0</Version>
+  <ProviderName>robotbates-boop</ProviderName>
+  <DefaultLocale>en-GB</DefaultLocale>
 
-    <script src="taskpane.js"></script>
-  </body>
-</html>
+  <DisplayName DefaultValue="Word Tools"/>
+  <Description DefaultValue="Word utilities (module menu)."/>
+
+  <!-- These icon files must exist at these URLs (or change them to match your repo files) -->
+  <IconUrl DefaultValue="https://robotbates-boop.github.io/Word-Add-In-Outlining/icon-32.png"/>
+  <HighResolutionIconUrl DefaultValue="https://robotbates-boop.github.io/Word-Add-In-Outlining/icon-80.png"/>
+
+  <SupportUrl DefaultValue="https://robotbates-boop.github.io/Word-Add-In-Outlining/"/>
+
+  <AppDomains>
+    <AppDomain>https://robotbates-boop.github.io</AppDomain>
+  </AppDomains>
+
+  <Hosts>
+    <Host Name="Document"/>
+  </Hosts>
+
+  <DefaultSettings>
+    <SourceLocation DefaultValue="https://robotbates-boop.github.io/Word-Add-In-Outlining/taskpane.html"/>
+  </DefaultSettings>
+
+  <Permissions>ReadWriteDocument</Permissions>
+
+  <VersionOverrides xmlns="http://schemas.microsoft.com/office/taskpaneappversionoverrides" xsi:type="VersionOverridesV1_0">
+    <Hosts>
+      <Host xsi:type="Document">
+        <DesktopFormFactor>
+
+          <!-- Button on the Home tab -->
+          <ExtensionPoint xsi:type="PrimaryCommandSurface">
+            <OfficeTab id="TabHome">
+              <Group id="grpWordTools">
+                <Label resid="grpLabel"/>
+
+                <Control xsi:type="Button" id="btnShowTools">
+                  <Label resid="btnLabel"/>
+                  <Supertip>
+                    <Title resid="btnLabel"/>
+                    <Description resid="btnDesc"/>
+                  </Supertip>
+                  <Icon>
+                    <bt:Image size="16" resid="icon16"/>
+                    <bt:Image size="32" resid="icon32"/>
+                    <bt:Image size="80" resid="icon80"/>
+                  </Icon>
+                  <Action xsi:type="ShowTaskpane">
+                    <TaskpaneId>WordToolsPane</TaskpaneId>
+                    <SourceLocation resid="taskpaneUrl"/>
+                  </Action>
+                </Control>
+
+              </Group>
+            </OfficeTab>
+          </ExtensionPoint>
+
+        </DesktopFormFactor>
+      </Host>
+    </Hosts>
+
+    <Resources>
+      <bt:Images>
+        <bt:Image id="icon16" DefaultValue="https://robotbates-boop.github.io/Word-Add-In-Outlining/icon-16.png"/>
+        <bt:Image id="icon32" DefaultValue="https://robotbates-boop.github.io/Word-Add-In-Outlining/icon-32.png"/>
+        <bt:Image id="icon80" DefaultValue="https://robotbates-boop.github.io/Word-Add-In-Outlining/icon-80.png"/>
+      </bt:Images>
+
+      <bt:Urls>
+        <bt:Url id="taskpaneUrl" DefaultValue="https://robotbates-boop.github.io/Word-Add-In-Outlining/taskpane.html"/>
+      </bt:Urls>
+
+      <bt:ShortStrings>
+        <bt:String id="grpLabel" DefaultValue="Tools"/>
+        <bt:String id="btnLabel" DefaultValue="Word Tools"/>
+      </bt:ShortStrings>
+
+      <bt:LongStrings>
+        <bt:String id="btnDesc" DefaultValue="Open the Word Tools module menu."/>
+      </bt:LongStrings>
+    </Resources>
+  </VersionOverrides>
+</OfficeApp>
